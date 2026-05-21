@@ -24,6 +24,55 @@ class QuizService:
     ) -> GenerateQuizResponse:
         return result
 
+    def _normalize_difficulty_value(self, value: str) -> str:
+        if not isinstance(value, str):
+            return "easy"
+
+        value = value.strip()
+
+        if "." in value:
+            value = value.split(".")[-1]
+
+        value = value.lower()
+
+        if value in {"easy", "medium", "hard"}:
+            return value
+
+        return "easy"
+
+    def _normalize_question_dict(self, question: dict, fallback_difficulty: str) -> dict:
+        normalized = dict(question)
+
+        if "correct answers" in normalized and "correct_answers" not in normalized:
+            normalized["correct_answers"] = normalized.pop("correct answers")
+
+        if "correctAnswers" in normalized and "correct_answers" not in normalized:
+            normalized["correct_answers"] = normalized.pop("correctAnswers")
+
+        if "source fragment id" in normalized and "source_fragment_id" not in normalized:
+            normalized["source_fragment_id"] = normalized.pop("source fragment id")
+
+        normalized["difficulty"] = self._normalize_difficulty_value(
+            normalized.get("difficulty", fallback_difficulty)
+        )
+
+        if "correct_answers" not in normalized:
+            normalized["correct_answers"] = []
+
+        return normalized
+
+    def _normalize_quiz_response_data(self, data: dict, fallback_difficulty: str) -> dict:
+        normalized = dict(data)
+        questions = normalized.get("questions", [])
+
+        normalized["questions"] = [
+            self._normalize_question_dict(question, fallback_difficulty)
+            for question in questions
+            if isinstance(question, dict)
+        ]
+
+        return normalized
+
     def _apply_difficulty_to_all_questions(
         self,
         result: GenerateQuizResponse,
@@ -87,6 +136,7 @@ class QuizService:
 
         try:
             data = self._extract_json(raw)
+            data = self._normalize_quiz_response_data(data, payload.difficulty.value)
             result = GenerateQuizResponse(**data)
             result = self._enrich_questions_with_source_fragments(result, manual_fragments)
             result = self._apply_difficulty_to_all_questions(result, payload.difficulty.value)
@@ -142,6 +192,7 @@ class QuizService:
 
         try:
             data = self._extract_json(raw)
+            data = self._normalize_quiz_response_data(data, difficulty)
             result = GenerateQuizResponse(**data)
             result = self._enrich_questions_with_source_fragments(result, fragments)
             result = self._apply_difficulty_to_all_questions(result, difficulty)
