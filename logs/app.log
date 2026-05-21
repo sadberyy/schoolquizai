@@ -1,0 +1,987 @@
+2026-05-20 21:05:51,324 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 21:05:51,714 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 21:06:14,633 | INFO | quiz_app | START generate_quiz | subject=string | grade=string | topic=string | question_count=5 | question_types=['single_choice', 'multiple_choice', 'true_false'] | source_text_len=6
+2026-05-20 21:06:14,770 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 21:06:19,857 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 21:06:19,860 | INFO | quiz_app | RAW_MODEL_RESPONSE: {
+  "quiz_title": "Викторина по истории для 5 класса",
+  "subject": "История",
+  "grade": "5",
+  "topic": "Древний мир",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Кто был первым царем Древнего Египта?",
+      "options": [
+        "Хеопс",
+        "Менес",
+        "Тутанхамон",
+        "Рамзес II"
+      ],
+      "correct_answers": [
+        "Менес"
+      ],
+      "explanation": "Менес считается основателем первой династии Древнего Египта.",
+      "difficulty": "easy",
+      "source_fragment": "Истории Древнего мира. 5 класс. Авторы: Тороп Г.И., Уколова В.И."
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие из перечисленных городов были столицами Древнего Египта?",
+      "options": [
+        "Фивы",
+        "Мемфис",
+        "Александрия",
+        "Гиза",
+        "Луксор"
+      ],
+      "correct_answers": [
+        "Фивы",
+        "Мемфис"
+      ],
+      "explanation": "Фивы и Мемфис являлись древними столицами Египта.",
+      "difficulty": "medium",
+      "source_fragment": "Учебник по истории Древнего мира. Авторы: Годер Г.И., Свенцицкая И.С."
+    },
+    {
+      "type": "true_false",
+      "text": "Верно ли, что пирамиды в Гизе были построены как гробницы фараонов?",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Верно"
+      ],
+      "explanation": "Пирамиды в Гизе действительно служили гробницами для фараонов Древнего Египта.",
+      "difficulty": "easy",
+      "source_fragment": "Учебник по истории Древнего мира. Авторы: Годер Г.И., Свенцицкая И.С."
+    },
+    {
+      "type": "single_choice",
+      "text": "Какой бог был главным божеством Древнего Египта?",
+      "options": [
+        "Осирис",
+        "Амон-Ра",
+        "Исида",
+        "Сет"
+      ],
+      "correct_answers": [
+        "Амон-Ра"
+      ],
+      "explanation": "Амон-Ра считался главным богом древних египтян и олицетворял солнце и творение.",
+      "difficulty": "medium",
+      "source_fragment": "Истори
+2026-05-20 21:06:19,862 | INFO | quiz_app | SUCCESS generate_quiz | title=Викторина по истории для 5 класса | questions_count=5
+2026-05-20 21:06:36,496 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 21:06:36,872 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 21:06:46,343 | INFO | quiz_app | START generate_quiz | subject=string | grade=string | topic=string | question_count=5 | question_types=['single_choice', 'multiple_choice', 'true_false'] | source_text_len=6
+2026-05-20 21:06:46,450 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 21:06:51,537 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 21:06:51,540 | INFO | quiz_app | RAW_MODEL_RESPONSE: {
+  "quiz_title": "Викторина по истории для 5 класса",
+  "subject": "История",
+  "grade": "5",
+  "topic": "Древний мир",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Кто был первым царем Египта?",
+      "options": [
+        "Хеопс",
+        "Менес",
+        "Тутанхамон",
+        "Рамзес II"
+      ],
+      "correct_answers": [
+        "Менес"
+      ],
+      "explanation": "Менес считается основателем первой египетской династии и первым царем объединенного Египта.",
+      "difficulty": "easy",
+      "source_fragment": "Истории Древнего мира. 5 класс. Под ред. А.А.Вигасина."
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие из перечисленных городов были столицами древних государств?",
+      "options": [
+        "Фивы",
+        "Вавилон",
+        "Афины",
+        "Карфаген",
+        "Троя"
+      ],
+      "correct_answers": [
+        "Фивы",
+        "Вавилон",
+        "Афины"
+      ],
+      "explanation": "Фивы были столицей Древнего Египта в период Среднего Царства, Вавилон — столицы Вавилонии, Афины — столица Древней Греции в классический период.",
+      "difficulty": "medium",
+      "source_fragment": "Учебник по истории Древнего мира. 5 класс. под ред. А.А.Вигасина."
+    },
+    {
+      "type": "true_false",
+      "text": "Верно ли утверждение, что Троя была реальным городом?",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Верно"
+      ],
+      "explanation": "Да, Троя действительно существовала и является археологическим памятником на территории современной Турции.",
+      "difficulty": "easy",
+      "source_fragment": "Учебник по истории Древнего мира. 5 класс. под ред. А.А.Вигасина."
+    },
+    {
+      "type": "single_choice",
+      "text": "Какой древнегреческий герой совершил путешествие за золотым руном?",
+      "options": [
+        "Геракл",
+        "Одиссей",
+        "Ясон",
+        "Ахилл"
+      ],
+      "correct_answers": [
+        "Ясон"
+      ],
+      "explanation
+2026-05-20 21:06:51,542 | INFO | quiz_app | SUCCESS generate_quiz | title=Викторина по истории для 5 класса | questions_count=5
+2026-05-20 21:06:54,960 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 21:06:55,317 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 21:07:03,586 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 21:07:03,957 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 21:07:29,235 | INFO | quiz_app | START generate_quiz | subject=string | grade=string | topic=string | question_count=5 | question_types=['single_choice', 'multiple_choice', 'true_false'] | source_text_len=6
+2026-05-20 21:07:29,359 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 21:07:34,434 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 21:07:34,435 | INFO | quiz_app | RAW_MODEL_RESPONSE: {
+  "quiz_title": "Викторина по истории для 5 класса",
+  "subject": "История",
+  "grade": "5",
+  "topic": "Древний мир",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Кто был первым царем Египта?",
+      "options": [
+        "Хеопс",
+        "Менес",
+        "Тутанхамон",
+        "Рамзес II"
+      ],
+      "correct_answers": [
+        "Менес"
+      ],
+      "explanation": "Менес считается основателем первой египетской династии и первым царем объединенного Египта.",
+      "difficulty": "easy",
+      "source_fragment": "Истории Древнего мира. 5 класс. Под ред. А.А.Вигасина."
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие из перечисленных городов были столицами древних государств?",
+      "options": [
+        "Фивы",
+        "Вавилон",
+        "Афины",
+        "Карфаген",
+        "Троя"
+      ],
+      "correct_answers": [
+        "Фивы",
+        "Вавилон",
+        "Афины"
+      ],
+      "explanation": "Фивы были столицей Древнего Египта в период Среднего Царства, Вавилон — столицы Вавилонии, Афины — столица Древней Греции в классический период.",
+      "difficulty": "medium",
+      "source_fragment": "Учебник по истории Древнего мира. 5 класс. под ред. А.А.Вигасина."
+    },
+    {
+      "type": "true_false",
+      "text": "Верно ли утверждение, что Троя была реальным городом?",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Верно"
+      ],
+      "explanation": "Да, Троя действительно существовала и является археологическим памятником на территории современной Турции.",
+      "difficulty": "easy",
+      "source_fragment": "Учебник по истории Древнего мира. 5 класс. под ред. А.А.Вигасина."
+    },
+    {
+      "type": "single_choice",
+      "text": "Какой древнегреческий герой совершил путешествие за золотым руном?",
+      "options": [
+        "Геракл",
+        "Одиссей",
+        "Ясон",
+        "Ахилл"
+      ],
+      "correct_answers": [
+        "Ясон"
+      ],
+      "explanation
+2026-05-20 21:07:34,436 | INFO | quiz_app | SUCCESS generate_quiz | title=Викторина по истории для 5 класса | questions_count=5
+2026-05-20 21:22:48,687 | INFO | quiz_app | START generate_quiz | subject=История | grade=8 | topic=Промышленный переворот в Англии | question_count=5 | question_types=['single_choice', 'multiple_choice', 'true_false'] | source_text_len=1464
+2026-05-20 21:22:48,943 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 21:22:54,226 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 21:22:54,229 | INFO | quiz_app | RAW_MODEL_RESPONSE: {
+  "quiz_title": "Промышленный переворот в Англии",
+  "subject": "История",
+  "grade": "8",
+  "topic": "Промышленный переворот в Англии",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Что стало причиной начала промышленного переворота в Англии?",
+      "options": [
+        "Изобретение паровой машины",
+        "Рост населения и спроса на товары",
+        "Открытие месторождений угля и железа",
+        "Развитие торговли и финансов"
+      ],
+      "correct_answers": [
+        "Развитие торговли и финансов"
+      ],
+      "explanation": "Промышленный переворот начался из-за развития торговли и финансов, что создало условия для инвестиций в новые технологии.",
+      "difficulty": "easy",
+      "source_fragment": "Промышленный переворот в Англии был вызван развитием торговли и финансов."
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие изобретения стали ключевыми для промышленного переворота в Англии?",
+      "options": [
+        "Ткацкий станок",
+        "Паровая машина",
+        "Железнодорожный транспорт",
+        "Пароход",
+        "Механическая прялка"
+      ],
+      "correct_answers": [
+        "Паровая машина",
+        "Механическая прялка"
+      ],
+      "explanation": "Ключевыми изобретениями стали паровая машина Уатта и механическая прялка Харгривза.",
+      "difficulty": "medium",
+      "source_fragment": "Важнейшими изобретениями стали паровая машина и механическая прялка."
+    },
+    {
+      "type": "true_false",
+      "text": "Во время промышленного переворота в Англии рабочие работали меньше часов в день.",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Неверно"
+      ],
+      "explanation": "На самом деле продолжительность рабочего дня значительно увеличилась во время промышленного переворота.",
+      "difficulty": "easy",
+      "source_fragment": "Рабочий день стал длиннее, условия труда ухудшились."
+    },
+    {
+      "type": "single_choice",
+      "text": "Ка
+2026-05-20 21:22:54,230 | INFO | quiz_app | SUCCESS generate_quiz | title=Промышленный переворот в Англии | questions_count=5
+2026-05-20 23:12:48,404 | ERROR | quiz_app | ENDPOINT_VALIDATION_ERROR /quiz/generate-from-materials: Unsupported file format. Allowed: .txt, .pdf, .pptx
+2026-05-20 23:16:25,184 | INFO | quiz_app | FILE_PROCESSED filename=11_лицей_РЭШ_Фотосинтез.pdf file_type=pdf fragments_count=19
+2026-05-20 23:16:25,184 | INFO | quiz_app | START generate_quiz_from_fragments | subject=Биология | grade=11 | topic=Фотосинтез | question_count=5 | fragments_count=20
+2026-05-20 23:16:25,548 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 23:16:31,363 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 23:16:31,365 | INFO | quiz_app | RAW_MODEL_RESPONSE_FROM_FRAGMENTS: {
+  "quiz_title": "Викторина по теме 'Фотосинтез'",
+  "subject": "Биология",
+  "grade": "11",
+  "topic": "Фотосинтез",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Какой газ выделяется растениями в процессе фотосинтеза?",
+      "options": [
+        "Кислород",
+        "Азот",
+        "Углекислый газ",
+        "Водяной пар"
+      ],
+      "correct_answers": [
+        "Кислород"
+      ],
+      "explanation": "В процессе фотосинтеза растения преобразуют углекислый газ и воду в глюкозу и кислород.",
+      "difficulty": "easy",
+      "source_fragment_id": "pdf_page_2"
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие условия необходимы для протекания фотосинтеза?",
+      "options": [
+        "Свет",
+        "Темнота",
+        "Вода",
+        "Тепло",
+        "Почва"
+      ],
+      "correct_answers": [
+        "Свет",
+        "Вода"
+      ],
+      "explanation": "Для фотосинтеза необходимы свет и вода.",
+      "difficulty": "medium",
+      "source_fragment_id": "pdf_page_2"
+    },
+    {
+      "type": "true_false",
+      "text": "Растения получают все необходимые вещества только из почвы.",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Неверно"
+      ],
+      "explanation": "Растения получают некоторые вещества, такие как азот и фосфор, из почвы, но основные питательные вещества, включая углерод, они получают из воздуха через процесс фотосинтеза.",
+      "difficulty": "easy",
+      "source_fragment_id": "pdf_page_2"
+    },
+    {
+      "type": "single_choice",
+      "text": "Где в клетке растения происходит фотосинтез?",
+      "options": [
+        "Хлоропласт",
+        "Митохондрия",
+        "Ядро",
+        "Цитоплазма"
+      ],
+      "correct_answers": [
+        "Хлоропласт"
+      ],
+      "explanation": "Фотосинтез происходит в хлоропластах растений, где содержатся хлоропласты, отвечающие за поглощение света и преобразование его энергии.",
+      "difficulty": "easy",
+      "sourc
+2026-05-20 23:16:31,367 | INFO | quiz_app | SUCCESS generate_quiz_from_fragments | title=Викторина по теме 'Фотосинтез' | questions_count=5
+2026-05-20 23:18:39,103 | INFO | quiz_app | FILE_PROCESSED filename=11_лицей_РЭШ_Фотосинтез.pdf file_type=pdf fragments_count=19
+2026-05-20 23:18:39,103 | INFO | quiz_app | START generate_quiz_from_fragments | subject=Биология | grade=11 | topic=Раскрыть сущность процесса фотосинтеза и его  значения для жизни на Земле. Акцент на сложных вопросах | question_count=5 | fragments_count=20
+2026-05-20 23:18:39,218 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 23:18:44,510 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 23:18:44,513 | INFO | quiz_app | RAW_MODEL_RESPONSE_FROM_FRAGMENTS: {
+  "quiz_title": "Фотосинтез и его значение",
+  "subject": "Биология",
+  "grade": "11",
+  "topic": "Раскрыть сущность процесса фотосинтеза и его значения для жизни на Земле. Акцент на сложных вопросах",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Какой газ выделяется растениями в процессе фотосинтеза?",
+      "options": [
+        "Кислород",
+        "Углекислый газ",
+        "Азот",
+        "Водяной пар"
+      ],
+      "correct_answers": [
+        "Кислород"
+      ],
+      "explanation": "В процессе фотосинтеза растения преобразуют углекислый газ и воду в глюкозу и кислород, выделяя последний в атмосферу.",
+      "difficulty": "easy",
+      "source_fragment_id": "manual_1"
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие условия необходимы для протекания фотосинтеза?",
+      "options": [
+        "Свет",
+        "Температура",
+        "Вода",
+        "Почва",
+        "Углекислый газ",
+        "Тепло"
+      ],
+      "correct_answers": [
+        "Свет",
+        "Вода",
+        "Углекислый газ"
+      ],
+      "explanation": "Для фотосинтеза необходимы свет, вода и углекислый газ.",
+      "difficulty": "medium",
+      "source_fragment_id": "manual_1"
+    },
+    {
+      "type": "true_false",
+      "text": "Фотосинтез возможен только в темноте.",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Неверно"
+      ],
+      "explanation": "Фотосинтез невозможен в темноте, так как необходим свет для преобразования энергии.",
+      "difficulty": "hard",
+      "source_fragment_id": "manual_1"
+    },
+    {
+      "type": "single_choice",
+      "text": "Какую роль играет хлорофилл в процессе фотосинтеза?",
+      "options": [
+        "Хранит энергию",
+        "Преобразует световую энергию в химическую",
+        "Транспортирует воду",
+        "Обеспечивает дыхание растений"
+      ],
+      "correct_answers": [
+        "Преобразует световую энергию в химическую"
+      ],
+      "explanation": "Хло
+2026-05-20 23:18:44,514 | INFO | quiz_app | SUCCESS generate_quiz_from_fragments | title=Фотосинтез и его значение | questions_count=5
+2026-05-20 23:26:32,088 | INFO | quiz_app | FILE_PROCESSED filename=11_лицей_РЭШ_Фотосинтез.pdf file_type=pdf fragments_count=19
+2026-05-20 23:26:32,088 | INFO | quiz_app | START generate_quiz_from_fragments | subject=Биология | grade=11 | topic=Раскрыть сущность процесса фотосинтеза и его  значения для жизни на Земле. Акцент на сложных вопросах | question_count=5 | fragments_count=19
+2026-05-20 23:26:32,224 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 23:26:37,103 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 23:26:37,105 | INFO | quiz_app | RAW_MODEL_RESPONSE_FROM_FRAGMENTS: {
+  "quiz_title": "Фотосинтез",
+  "subject": "Биология",
+  "grade": "11",
+  "topic": "Раскрыть сущность процесса фотосинтеза и его значения для жизни на Земле. Акцент на сложных вопросах",
+  "questions": [
+    {
+      "type": "multiple_choice",
+      "text": "Какой газ выделяется растениями в процессе фотосинтеза?",
+      "options": [
+        "Кислород",
+        "Углекислый газ",
+        "Азот",
+        "Водяной пар"
+      ],
+      "correct_answers": [
+        "Кислород"
+      ],
+      "explanation": "В процессе фотосинтеза растения преобразуют углекислый газ и воду в глюкозу и кислород, выделяя последний в атмосферу.",
+      "difficulty": "medium",
+      "source_fragment_id": "pdf_page_4"
+    },
+    {
+      "type": "true_false",
+      "text": "Процесс фотосинтеза возможен только при наличии света.",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Верно"
+      ],
+      "explanation": "Для осуществления фотосинтеза необходим свет, который служит источником энергии для преобразования углекислого газа и воды в органические вещества и кислород.",
+      "difficulty": "easy",
+      "source_fragment_id": "pdf_page_2"
+    },
+    {
+      "type": "single_choice",
+      "text": "Какие структуры в клетках растений отвечают за проведение фотосинтеза?",
+      "options": [
+        "Хлоропласты",
+        "Митохондрии",
+        "Лизосомы",
+        "Рибосомы"
+      ],
+      "correct_answers": [
+        "Хлоропласты"
+      ],
+      "explanation": "Хлоропласты содержат хлорофилл и другие пигменты, необходимые для проведения фотосинтетических реакций.",
+      "difficulty": "hard",
+      "source_fragment_id": "pdf_page_3"
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие условия необходимы для протекания фотосинтеза?",
+      "options": [
+        "Свет",
+        "Температура",
+        "Вода",
+        "Углекислый газ",
+        "Почва"
+      ],
+      "correct_answers": [
+        "Свет",
+        "Вода",
+        "Углекислый г
+2026-05-20 23:26:37,107 | INFO | quiz_app | SUCCESS generate_quiz_from_fragments | title=Фотосинтез | questions_count=5
+2026-05-20 23:31:25,694 | INFO | quiz_app | FILE_PROCESSED filename=11_лицей_РЭШ_Фотосинтез.pdf file_type=pdf fragments_count=19
+2026-05-20 23:31:25,694 | INFO | quiz_app | START generate_quiz_from_fragments | subject=Биология | grade=10 | topic=Фотосинтез | question_count=5 | fragments_count=19
+2026-05-20 23:31:25,830 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 23:31:30,878 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 23:31:30,879 | INFO | quiz_app | RAW_MODEL_RESPONSE_FROM_FRAGMENTS: {
+  "quiz_title": "Тест по теме 'Фотосинтез'",
+  "subject": "Биология",
+  "grade": "10",
+  "topic": "Фотосинтез",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Какой газ выделяется растениями в процессе фотосинтеза?",
+      "options": [
+        "Кислород",
+        "Азот",
+        "Углекислый газ",
+        "Водяной пар"
+      ],
+      "correct_answers": [
+        "Кислород"
+      ],
+      "explanation": "В процессе фотосинтеза растения преобразуют углекислый газ и воду в глюкозу и кислород.",
+      "difficulty": "easy",
+      "source_fragment_id": "pdf_page_4"
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие условия необходимы для протекания фотосинтеза?",
+      "options": [
+        "Свет",
+        "Температура",
+        "Вода",
+        "Почва",
+        "Дыхание",
+        "Углекислый газ"
+      ],
+      "correct_answers": [
+        "Свет",
+        "Вода",
+        "Углекислый газ"
+      ],
+      "explanation": "Для протекания фотосинтеза необходимы свет, вода и углекислый газ.",
+      "difficulty": "medium",
+      "source_fragment_id": "pdf_page_2"
+    },
+    {
+      "type": "true_false",
+      "text": "Растения получают все необходимые вещества только из почвы.",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Неверно"
+      ],
+      "explanation": "Растения получают некоторые вещества, такие как азот и фосфор, непосредственно из почвы, но основные питательные вещества они получают из воздуха и воды через процесс фотосинтеза.",
+      "difficulty": "easy",
+      "source_fragment_id": "pdf_page_4"
+    },
+    {
+      "type": "single_choice",
+      "text": "Где в клетке растения происходит фотосинтез?",
+      "options": [
+        "Хлоропласт",
+        "Митохондрия",
+        "Ядро",
+        "Цитоплазма"
+      ],
+      "correct_answers": [
+        "Хлоропласт"
+      ],
+      "explanation": "Фотосинтез происходит в хлоропластах растений, где содержатся хлоропласты, отвечающие за погл
+2026-05-20 23:31:30,881 | INFO | quiz_app | SUCCESS generate_quiz_from_fragments | title=Тест по теме 'Фотосинтез' | questions_count=5
+2026-05-20 23:54:45,003 | INFO | quiz_app | FILE_PROCESSED filename=11_лицей_РЭШ_Фотосинтез.pdf file_type=pdf fragments_count=19
+2026-05-20 23:54:45,003 | INFO | quiz_app | START generate_quiz_from_fragments | subject=Биология | grade=10 | topic=Фотосинтез | question_count=5 | fragments_count=19
+2026-05-20 23:54:45,288 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-20 23:54:50,424 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-20 23:54:50,426 | INFO | quiz_app | RAW_MODEL_RESPONSE_FROM_FRAGMENTS: {
+  "quiz_title": "Тест по теме Фотосинтез",
+  "subject": "Биология",
+  "grade": "10",
+  "topic": "Фотосинтез",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Какой ученый впервые доказал, что растения получают питание не только из почвы?",
+      "options": [
+        "Ян Баптист ван Гельмонт",
+        "Мария Склодовская-Кюри",
+        "Дмитрий Менделеев",
+        "Карл Линней"
+      ],
+      "correct_answers": [
+        "Ян Баптист ван Гельмонт"
+      ],
+      "explanation": "В фрагменте pdf_page_4 описывается эксперимент Яна Баптиста ван Гельмонта, который показал, что растение получает питание не только из почвы.",
+      "difficulty": "easy",
+      "source_fragment_id": "pdf_page_4"
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие вещества необходимы для протекания фотосинтеза?",
+      "options": [
+        "Свет",
+        "Хлоропласты",
+        "Вода",
+        "Углекислый газ",
+        "Температура",
+        "Почва"
+      ],
+      "correct_answers": [
+        "Свет",
+        "Хлоропласты",
+        "Вода",
+        "Углекислый газ"
+      ],
+      "explanation": "На pdf_page_4 указано, что для фотосинтеза необходимы свет, хлоропласты, вода и углекислый газ.",
+      "difficulty": "medium",
+      "source_fragment_id": "pdf_page_4"
+    },
+    {
+      "type": "true_false",
+      "text": "Растения могут получать питательные вещества только из почвы.",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Неверно"
+      ],
+      "explanation": "На pdf_page_4 объясняется, что Ян Баптист ван Гельмонт доказал, что растения получают питание не только из почвы.",
+      "difficulty": "easy",
+      "source_fragment_id": "pdf_page_4"
+    },
+    {
+      "type": "single_choice",
+      "text": "Где в клетке растения происходят процессы фотосинтеза?",
+      "options": [
+        "Листья",
+        "Корни",
+        "Цветки",
+        "Хлоропласты"
+      ],
+      "correct_answers": [
+        "Хлоропласты"
+
+2026-05-20 23:54:50,427 | INFO | quiz_app | SUCCESS generate_quiz_from_fragments | title=Тест по теме Фотосинтез | questions_count=5
+2026-05-21 20:00:07,439 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Биология | grade=9 | topic=Фотосинтез | question_count=5 | question_types=[<QuestionType.true_false: 'true_false'>]
+2026-05-21 20:00:07,757 | INFO | quiz_app | PROCESS IMAGE | filename=561x158.webp
+2026-05-21 20:00:07,759 | INFO | quiz_app | START extract_text_from_image | filename=561x158.webp
+2026-05-21 20:00:07,759 | INFO | quiz_app | START upload_file | filename=561x158.webp | size=6574
+2026-05-21 20:00:08,225 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 20:00:08,666 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/files "HTTP/1.1 400 Bad Request"
+2026-05-21 20:06:52,559 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Биология | grade=9 | topic=Фотосинтез | question_count=5 | question_types=[<QuestionType.single_choice: 'single_choice'>]
+2026-05-21 20:06:52,565 | INFO | quiz_app | PROCESS IMAGE | filename=Безымянный.png
+2026-05-21 20:06:52,567 | INFO | quiz_app | START extract_text_from_image | filename=Безымянный.png
+2026-05-21 20:06:52,571 | INFO | quiz_app | START upload_file | filename=Безымянный.png | size=251040
+2026-05-21 20:06:52,720 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 20:06:53,914 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/files "HTTP/1.1 200 OK"
+2026-05-21 20:06:53,915 | INFO | quiz_app | SUCCESS upload_file | filename=Безымянный.png
+2026-05-21 20:07:19,374 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Биология | grade=9 | topic=Фотосинтез | question_count=5 | question_types=[<QuestionType.single_choice: 'single_choice'>]
+2026-05-21 20:07:19,374 | INFO | quiz_app | PROCESS IMAGE | filename=Безымянный.png
+2026-05-21 20:07:19,377 | INFO | quiz_app | START extract_text_from_image | filename=Безымянный.png
+2026-05-21 20:07:19,378 | INFO | quiz_app | START upload_file | filename=Безымянный.png | size=251040
+2026-05-21 20:07:19,486 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 20:07:20,301 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/files "HTTP/1.1 200 OK"
+2026-05-21 20:07:20,302 | INFO | quiz_app | SUCCESS upload_file | filename=Безымянный.png
+2026-05-21 20:24:19,800 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Биология | grade=9 | topic=Фотосинтез | question_count=5 | question_types=[<QuestionType.true_false: 'true_false'>]
+2026-05-21 20:29:48,644 | INFO | quiz_app | PROCESS IMAGE | filename=Безымянный.png
+2026-05-21 20:29:48,644 | INFO | quiz_app | START extract_text_from_image | filename=Безымянный.png
+2026-05-21 20:29:48,644 | INFO | quiz_app | START upload_file | filename=Безымянный.png | size=251040
+2026-05-21 20:29:48,867 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 20:29:50,337 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/files "HTTP/1.1 200 OK"
+2026-05-21 20:29:50,338 | INFO | quiz_app | SUCCESS upload_file | filename=Безымянный.png
+2026-05-21 20:33:34,033 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Физика | grade=9 | topic=Кинематика | question_count=5 | question_types=[<QuestionType.single_choice: 'single_choice'>]
+2026-05-21 20:33:34,034 | INFO | quiz_app | PROCESS IMAGE | filename=Кинематика.png
+2026-05-21 20:33:34,034 | INFO | quiz_app | START extract_text_from_image | filename=Кинематика.png
+2026-05-21 20:33:34,034 | INFO | quiz_app | START upload_file | filename=Кинематика.png | size=32891
+2026-05-21 20:33:34,250 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 20:33:35,503 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/files "HTTP/1.1 200 OK"
+2026-05-21 20:33:35,504 | INFO | quiz_app | SUCCESS upload_file | filename=Кинематика.png
+2026-05-21 20:36:59,910 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Физика | grade=9 | topic=Кинематика | question_count=5 | question_types=[<QuestionType.single_choice: 'single_choice'>]
+2026-05-21 20:36:59,911 | INFO | quiz_app | PROCESS IMAGE | filename=Кинематика.png
+2026-05-21 20:36:59,913 | INFO | quiz_app | START extract_text_from_image | filename=Кинематика.png
+2026-05-21 20:36:59,913 | INFO | quiz_app | START upload_file | filename=Кинематика.png | size=32891
+2026-05-21 20:37:00,133 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 20:37:01,051 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/files "HTTP/1.1 200 OK"
+2026-05-21 20:37:01,052 | INFO | quiz_app | SUCCESS upload_file | filename=Кинематика.png
+2026-05-21 20:37:01,168 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 20:37:01,377 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-21 20:37:01,378 | INFO | quiz_app | SUCCESS extract_text_from_image | filename=Кинематика.png
+2026-05-21 20:37:01,379 | INFO | quiz_app | IMAGE PROCESSED | filename=Кинематика.png | extracted_len=24
+2026-05-21 20:37:01,381 | INFO | quiz_app | MERGED FRAGMENTS | count=1 | fragment_ids=['image_1']
+2026-05-21 20:37:01,381 | INFO | quiz_app | START generate_quiz_from_fragments | subject=Физика | grade=9 | topic=Кинематика | question_count=5 | fragments_count=1
+2026-05-21 20:37:01,494 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 20:37:06,224 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-21 20:37:06,225 | INFO | quiz_app | RAW_MODEL_RESPONSE_FROM_FRAGMENTS: {
+  "quiz_title": "Квизы по кинематике для 9 класса",
+  "subject": "Физика",
+  "grade": "9",
+  "topic": "Кинематика",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Что такое перемещение в физике?",
+      "options": [
+        "Путь, пройденный телом",
+        "Направленный отрезок, соединяющий начальную и конечную точки движения тела",
+        "Расстояние от начальной до конечной точки движения"
+      ],
+      "correct_answers": [
+        "Направленный отрезок, соединяющий начальную и конечную точки движения тела"
+      ],
+      "explanation": "Изображение показывает вектор перемещения как направленный отрезок от начала к концу пути.",
+      "difficulty": "easy",
+      "source_fragment_id": "image_1",
+      "source_fragment": null
+    },
+    {
+      "type": "single_choice",
+      "text": "Какое из следующих определений описывает скорость?",
+      "options": [
+        "Пройденное расстояние за единицу времени",
+        "Изменение скорости за единицу времени",
+        "Направленное движение тела"
+      ],
+      "correct_answers": [
+        "Пройденное расстояние за единицу времени"
+      ],
+      "explanation": "Скорость определяется как путь, пройденный телом за единицу времени.",
+      "difficulty": "easy",
+      "source_fragment_id": "image_1",
+      "source_fragment": null
+    },
+    {
+      "type": "single_choice",
+      "text": "Что означает равномерное движение?",
+      "options": [
+        "Движение с постоянной скоростью",
+        "Движение с изменяющейся скоростью",
+        "Движение по прямой линии"
+      ],
+      "correct_answers": [
+        "Движение с постоянной скоростью"
+      ],
+      "explanation": "Равномерным движением называется движение с неизменной скоростью.",
+      "difficulty": "easy",
+      "source_fragment_id": "image_1",
+      "source_fragment": null
+    },
+    {
+      "type": "single_choice",
+      "text": "Какой из следующих графиков соответствует равномерному движению?",
+      "options": [
+        "Прямая линия под
+2026-05-21 20:37:06,227 | INFO | quiz_app | SUCCESS generate_quiz_from_fragments | title=Квизы по кинематике для 9 класса | questions_count=5
+2026-05-21 20:37:06,228 | INFO | quiz_app | SUCCESS /quiz/generate-from-materials | title=Квизы по кинематике для 9 класса | questions_count=5
+2026-05-21 21:28:02,828 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Физика | grade=9 | topic=Кинематика | question_count=5 | question_types=[<QuestionType.single_choice: 'single_choice'>]
+2026-05-21 21:28:02,829 | INFO | quiz_app | PROCESS IMAGE | filename=Кинематика.png
+2026-05-21 21:28:02,832 | INFO | quiz_app | START extract_text_from_image | filename=Кинематика.png
+2026-05-21 21:28:02,833 | INFO | quiz_app | START upload_file | filename=Кинематика.png | size=32891
+2026-05-21 21:28:03,066 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 21:28:04,364 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/files "HTTP/1.1 200 OK"
+2026-05-21 21:28:04,365 | INFO | quiz_app | SUCCESS upload_file | filename=Кинематика.png
+2026-05-21 21:28:04,493 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 21:28:05,813 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-21 21:28:05,814 | INFO | quiz_app | SUCCESS extract_text_from_image | filename=Кинематика.png
+2026-05-21 21:28:05,815 | INFO | quiz_app | IMAGE PROCESSED | filename=Кинематика.png | extracted_len=913
+2026-05-21 21:28:05,816 | INFO | quiz_app | MERGED FRAGMENTS | count=1 | fragment_ids=['image_1']
+2026-05-21 21:28:05,817 | INFO | quiz_app | START generate_quiz_from_fragments | subject=Физика | grade=9 | topic=Кинематика | question_count=5 | fragments_count=1
+2026-05-21 21:28:05,944 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 21:28:10,870 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-21 21:28:10,871 | INFO | quiz_app | RAW_MODEL_RESPONSE_FROM_FRAGMENTS: {
+  "quiz_title": "Кинематика 9 класс",
+  "subject": "Физика",
+  "grade": "9",
+  "topic": "Кинематика",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Что такое равномерное движение?",
+      "options": [
+        "Движение с постоянной скоростью",
+        "Движение с ускорением",
+        "Движение по прямой линии",
+        "Движение по кривой линии"
+      ],
+      "correct_answers": [
+        "Движение с постоянной скоростью"
+      ],
+      "explanation": "Равномерным движением называется движение с постоянной скоростью.",
+      "difficulty": "easy",
+      "source_fragment_id": "image_1",
+      "source_fragment": null
+    },
+    {
+      "type": "single_choice",
+      "text": "Какое из следующих утверждений верно для равномерно-замедленного движения?",
+      "options": [
+        "Скорость увеличивается с течением времени",
+        "Скорость уменьшается с течением времени",
+        "Путь всегда прямолинеен",
+        "Ускорение постоянно"
+      ],
+      "correct_answers": [
+        "Скорость уменьшается с течением времени"
+      ],
+      "explanation": "При равномерно-замедленном движении скорость тела уменьшается с течением времени.",
+      "difficulty": "medium",
+      "source_fragment_id": "image_1",
+      "source_fragment": null
+    },
+    {
+      "type": "single_choice",
+      "text": "Какой из следующих графиков скорости-времени соответствует равномерному движению?",
+      "options": [
+        "Прямая линия, наклоненная вверх",
+        "Горизонтальная прямая линия",
+        "Наклонная прямая линия",
+        "Кривая линия"
+      ],
+      "correct_answers": [
+        "Горизонтальная прямая линия"
+      ],
+      "explanation": "График скорости при равномерном движении представляет собой горизонтальную прямую линию.",
+      "difficulty": "easy",
+      "source_fragment_id": "image_1",
+      "source_fragment": null
+    },
+    {
+      "type": "single_choice",
+      "text": "Что означает отрицательное ускорение в кинематике?",
+      "options": [
+    
+2026-05-21 21:28:10,874 | INFO | quiz_app | SUCCESS generate_quiz_from_fragments | title=Кинематика 9 класс | questions_count=5
+2026-05-21 21:28:10,874 | INFO | quiz_app | SUCCESS /quiz/generate-from-materials | title=Кинематика 9 класс | questions_count=5
+2026-05-21 21:41:54,093 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Физика | grade=9 | topic=Механика | question_count=6 | question_types=[<QuestionType.multiple_choice: 'multiple_choice'>]
+2026-05-21 21:41:54,093 | INFO | quiz_app | PROCESS FILE | filename=pourochnye_9_klass.doc | content_type=application/msword
+2026-05-21 21:45:06,921 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Физика | grade=9 | topic=Механика | question_count=6 | question_types=[<QuestionType.single_choice: 'single_choice'>]
+2026-05-21 21:45:06,922 | INFO | quiz_app | PROCESS FILE | filename=pourochnye_9_klass.docx | content_type=application/vnd.openxmlformats-officedocument.wordprocessingml.document
+2026-05-21 21:45:07,784 | INFO | quiz_app | FILE PROCESSED | filename=pourochnye_9_klass.docx | file_type=docx | fragments_count=1
+2026-05-21 21:45:07,785 | INFO | quiz_app | MERGED FRAGMENTS | count=1 | fragment_ids=['docx_1']
+2026-05-21 21:45:07,786 | INFO | quiz_app | START generate_quiz_from_fragments | subject=Физика | grade=9 | topic=Механика | question_count=6 | fragments_count=1
+2026-05-21 21:45:07,996 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 21:45:14,808 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-21 21:45:14,809 | INFO | quiz_app | RAW_MODEL_RESPONSE_FROM_FRAGMENTS: {
+  "quiz_title": "Проверка знаний по теме Механика для 9 класса",
+  "subject": "Физика",
+  "grade": "9",
+  "topic": "Механика",
+  "questions": [
+    {
+      "type": "single_choice",
+      "text": "Что является первым этапом развития механики как науки?",
+      "options": [
+        "Работа Г. Галилея",
+        "Сочинения Аристотеля",
+        "Работы Архимеда",
+        "Исследования И. Ньютона"
+      ],
+      "correct_answers": [
+        "Сочинения Аристотеля"
+      ],
+      "explanation": "В тексте указано, что первое сочинение по механике принадлежит Аристотелю, в котором впервые введен в науку термин «механика».",
+      "difficulty": "easy",
+      "source_fragment_id": "docx_1"
+    },
+    {
+      "type": "single_choice",
+      "text": "Какой ученый сформулировал закон равновесия рычага и закон плавания тел?",
+      "options": [
+        "Г. Галилей",
+        "И. Ньютон",
+        "Аристотель",
+        "Архимед"
+      ],
+      "correct_answers": [
+        "Архимед"
+      ],
+      "explanation": "В тексте указано, что Архимед сформулировал закон равновесия рычага и закон плавания тел.",
+      "difficulty": "easy",
+      "source_fragment_id": "docx_1"
+    },
+    {
+      "type": "single_choice",
+      "text": "Как называется наука, изучающая движение и взаимодействие макроскопических тел?",
+      "options": [
+        "Кинематика",
+        "Термодинамика",
+        "Электродинамика",
+        "Механика"
+      ],
+      "correct_answers": [
+        "Механика"
+      ],
+      "explanation": "В тексте указано, что механика - это наука о движении и взаимодействии макроскопических тел.",
+      "difficulty": "easy",
+      "source_fragment_id": "docx_1"
+    },
+    {
+      "type": "single_choice",
+      "text": "Что обозначает термин 'материальная точка' в физике?",
+      "options": [
+        "Тело определенной массы",
+        "Тело определенного объема",
+        "Тело, размеры и форма которого в рассматриваемом случае можно пренебречь",
+        "Тело, движущееся прямолинейно и равн
+2026-05-21 21:45:14,811 | INFO | quiz_app | SUCCESS generate_quiz_from_fragments | title=Проверка знаний по теме Механика для 9 класса | questions_count=6
+2026-05-21 21:45:14,812 | INFO | quiz_app | SUCCESS /quiz/generate-from-materials | title=Проверка знаний по теме Механика для 9 класса | questions_count=6
+2026-05-21 22:32:33,913 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Физика | grade=9 | topic=Механика | question_count=6 | question_types=[<QuestionType.true_false: 'true_false'>] | difficulty=DifficultyLevel.easy
+2026-05-21 22:32:53,827 | INFO | quiz_app | START /quiz/generate-from-materials | subject=Физика | grade=9 | topic=Механика | question_count=6 | question_types=[<QuestionType.true_false: 'true_false'>] | difficulty=DifficultyLevel.easy
+2026-05-21 22:32:53,827 | INFO | quiz_app | PROCESS SOURCE_TEXT | length=18
+2026-05-21 22:32:53,833 | INFO | quiz_app | MERGED FRAGMENTS | count=1 | fragment_ids=['manual_1']
+2026-05-21 22:32:53,837 | INFO | quiz_app | START generate_quiz_from_fragments | subject=Физика | grade=9 | topic=Механика | question_count=6 | difficulty=DifficultyLevel.easy | fragments_count=1
+2026-05-21 22:32:54,066 | INFO | httpx | HTTP Request: POST https://ngw.devices.sberbank.ru:9443/api/v2/oauth "HTTP/1.1 200 OK"
+2026-05-21 22:32:59,759 | INFO | httpx | HTTP Request: POST https://gigachat.devices.sberbank.ru/api/v1/chat/completions "HTTP/1.1 200 OK"
+2026-05-21 22:32:59,760 | INFO | quiz_app | RAW_MODEL_RESPONSE_FROM_FRAGMENTS: {
+  "quiz_title": "Проверка знаний по механике для 9 класса",
+  "subject": "Физика",
+  "grade": "9",
+  "topic": "Механика",
+  "questions": [
+    {
+      "type": "true_false",
+      "text": "Трение всегда является вредным явлением?",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Неверно"
+      ],
+      "explanation": "В тексте не указано, что трение всегда является вредным явлением. Трение может быть как полезным, так и вредным в зависимости от ситуации.",
+      "difficulty": "easy",
+      "source_fragment_id": "manual_1"
+    },
+    {
+      "type": "true_false",
+      "text": "Сила тяжести действует только вертикально вниз?",
+      "options": [
+        "Верно",
+        "Неверно"
+      ],
+      "correct_answers": [
+        "Верно"
+      ],
+      "explanation": "Согласно определению силы тяжести, она всегда направлена вертикально вниз.",
+      "difficulty": "easy",
+      "source_fragment_id": "manual_1"
+    },
+    {
+      "type": "single_choice",
+      "text": "Что такое инерция?",
+      "options": [
+        "Способность тела сохранять состояние покоя или равномерного прямолинейного движения при отсутствии внешних воздействий",
+        "Скорость тела",
+        "Масса тела",
+        "Сила, действующая на тело"
+      ],
+      "correct_answers": [
+        "Способность тела сохранять состояние покоя или равномерного прямолинейного движения при отсутствии внешних воздействий"
+      ],
+      "explanation": "Инерция - это способность тела сохранять свое состояние движения или покоя до тех пор, пока на него не подействует внешняя сила.",
+      "difficulty": "easy",
+      "source_fragment_id": "manual_1"
+    },
+    {
+      "type": "multiple_choice",
+      "text": "Какие силы действуют на тело, движущееся равномерно по горизонтальной поверхности?",
+      "options": [
+        "Сила тяжести",
+        "Нормальная сила",
+        "Сила трения",
+        "Сила реакции опоры",
+        "Сила тяги"
+      ],
+      "correct_answers": [
+  
+2026-05-21 22:32:59,762 | INFO | quiz_app | SUCCESS generate_quiz_from_fragments | title=Проверка знаний по механике для 9 класса | questions_count=6
+2026-05-21 22:32:59,763 | INFO | quiz_app | SUCCESS /quiz/generate-from-materials | title=Проверка знаний по механике для 9 класса | questions_count=6
