@@ -1,12 +1,22 @@
 from enum import Enum
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from pydantic import BaseModel
 
 from app.core.logger import logger
+from app.db.database import get_db_session
+from app.db.models import Quiz, Question, Result
 from app.schemas.quiz import DifficultyLevel
 from app.schemas.material import SourceFragment
 from app.services.material_service import material_service
 from app.services.gigachat_service import gigachat_service
 from app.services.quiz_service import quiz_service
+from app.services.attempts_service import (
+    start_quiz,
+    get_quiz_questions,
+    submit_answer,
+    finish_quiz,
+    get_quiz_results,
+)
 
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
@@ -28,6 +38,9 @@ def _normalize_source_text(value: str | None) -> str:
     return text
 
 
+# ============================================================
+# 1. Генерация викторины (с сохранением в БД)
+# ============================================================
 @router.post("/generate-from-materials")
 async def generate_quiz_from_materials(
     subject: str = Form(...),
@@ -42,8 +55,7 @@ async def generate_quiz_from_materials(
 ):
     logger.info(
         f"START /quiz/generate-from-materials | subject={subject} | grade={grade} | "
-        f"topic={topic} | question_count={question_count} | question_types={question_types} | "
-        f"difficulty={difficulty}"
+        f"topic={topic} | question_count={question_count} | difficulty={difficulty}"
     )
 
     cleaned_source_text = _normalize_source_text(source_text)
@@ -51,14 +63,14 @@ async def generate_quiz_from_materials(
     if not cleaned_source_text and file is None and image is None:
         raise HTTPException(
             status_code=400,
-            detail="Provide at least one source: source_text, file, or image."
+            detail="Укажите хотя бы один источник: текст, файл или изображение."
         )
 
     parsed_question_types = [item.value for item in question_types]
     all_fragments: list[SourceFragment] = []
 
+    # --- Обработка текста ---
     if cleaned_source_text:
-        logger.info(f"PROCESS SOURCE_TEXT | length={len(cleaned_source_text)}")
         all_fragments.append(
             SourceFragment(
                 fragment_id="manual_1",
@@ -68,36 +80,19 @@ async def generate_quiz_from_materials(
             )
         )
 
+    # --- Обработка файла ---
     if file is not None:
-        logger.info(
-            f"PROCESS FILE | filename={file.filename} | content_type={file.content_type}"
-        )
         file_content = await file.read()
-
         if not file_content:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+            raise HTTPException(status_code=400, detail="Загруженный файл пуст.")
 
         try:
-            file_type, file_fragments = material_service.extract_fragments(
-                file.filename,
-                file_content
-            )
+            file_type, file_fragments = material_service.extract_fragments(file.filename, file_content)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        logger.info(
-            f"FILE PROCESSED | filename={file.filename} | file_type={file_type} | "
-            f"fragments_count={len(file_fragments)}"
-        )
-
         if file_type in {"pdf", "pptx", "docx", "doc"} and material_service.has_too_little_text(file_fragments):
-            logger.info(f"FILE FALLBACK START | filename={file.filename} | file_type={file_type}")
-
-            extracted_text = gigachat_service.extract_text_from_file(
-                file.filename,
-                file_content
-            )
-
+            extracted_text = gigachat_service.extract_text_from_file(file.filename, file_content)
             if extracted_text and extracted_text.strip():
                 file_fragments = [
                     SourceFragment(
@@ -108,27 +103,15 @@ async def generate_quiz_from_materials(
                     )
                 ]
 
-            logger.info(
-                f"FILE FALLBACK DONE | filename={file.filename} | "
-                f"fallback_fragments_count={len(file_fragments)}"
-            )
-
         all_fragments.extend(file_fragments)
 
+    # --- Обработка изображения ---
     if image is not None:
-        logger.info(
-            f"PROCESS IMAGE | filename={image.filename} | content_type={image.content_type}"
-        )
         image_content = await image.read()
-
         if not image_content:
-            raise HTTPException(status_code=400, detail="Uploaded image is empty.")
+            raise HTTPException(status_code=400, detail="Загруженное изображение пусто.")
 
-        image_text = gigachat_service.extract_text_from_image(
-            image.filename,
-            image_content
-        )
-
+        image_text = gigachat_service.extract_text_from_image(image.filename, image_content)
         if image_text and image_text.strip():
             all_fragments.append(
                 SourceFragment(
@@ -139,24 +122,12 @@ async def generate_quiz_from_materials(
                 )
             )
 
-        logger.info(
-            f"IMAGE PROCESSED | filename={image.filename} | "
-            f"extracted_len={len(image_text) if image_text else 0}"
-        )
-
+    # --- Объединение фрагментов ---
     merged_fragments = material_service.merge_fragments(None, all_fragments)
-
     if not merged_fragments:
-        raise HTTPException(
-            status_code=400,
-            detail="Could not extract any usable text from provided sources."
-        )
+        raise HTTPException(status_code=400, detail="Не удалось извлечь текст из источников.")
 
-    logger.info(
-        f"MERGED FRAGMENTS | count={len(merged_fragments)} | "
-        f"fragment_ids={[fragment.fragment_id for fragment in merged_fragments]}"
-    )
-
+    # --- Генерация через GigaChat ---
     result = quiz_service.generate_quiz_from_fragments(
         subject=subject,
         grade=grade,
@@ -167,9 +138,244 @@ async def generate_quiz_from_materials(
         fragments=merged_fragments
     )
 
-    logger.info(
-        f"SUCCESS /quiz/generate-from-materials | title={result.quiz_title} | "
-        f"questions_count={len(result.questions)}"
-    )
+    # --- Сохранение в БД ---
+    with get_db_session() as session:
+        quiz = Quiz(
+            title=result.quiz_title,
+            subject=subject,
+            grade=grade,
+            difficulty=difficulty.value,
+            status="draft",
+        )
+        session.add(quiz)
+        session.flush()  # получаем quiz.id внутри сессии
 
-    return result
+        # Сохраняем ID сразу, пока мы внутри сессии
+        saved_quiz_id = quiz.id
+
+        for idx, q in enumerate(result.questions):
+            question = Question(
+                quiz_id=saved_quiz_id,
+                question_text=q.text,
+                question_type=q.type,
+                answers=q.options,
+                correct_answers=q.correct_answers,
+                explanation=q.explanation,
+                source_fragment=q.source_fragment_id or "",
+                points=1,
+                order_idx=idx,
+            )
+            session.add(question)
+
+        session.commit()
+
+        logger.info(f"SAVED TO DB | quiz_id={saved_quiz_id} | questions_count={len(result.questions)}")
+
+    # Возвращаем ответ, используя сохранённый ID
+    return {
+        "quiz_id": saved_quiz_id,
+        "title": result.quiz_title,
+        "subject": result.subject,
+        "grade": result.grade,
+        "topic": result.topic,
+        "questions": [
+            {
+                "type": q.type,
+                "text": q.text,
+                "options": q.options,
+                "correct_answers": q.correct_answers,
+                "explanation": q.explanation,
+                "source_fragment_id": q.source_fragment_id,
+            }
+            for q in result.questions
+        ],
+    }
+
+
+# ============================================================
+# 2. Получение викторины по ID (для редактирования)
+# ============================================================
+@router.get("/{quiz_id}")
+def get_quiz(quiz_id: str):
+    with get_db_session() as session:
+        quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Викторина не найдена")
+
+        questions = (
+            session.query(Question)
+            .filter(Question.quiz_id == quiz_id)
+            .order_by(Question.order_idx)
+            .all()
+        )
+
+        return {
+            "quiz_id": quiz.id,
+            "title": quiz.title,
+            "subject": quiz.subject,
+            "grade": quiz.grade,
+            "difficulty": quiz.difficulty,
+            "full_time_seconds": quiz.full_time_seconds,
+            "question_time_seconds": quiz.question_time_seconds,
+            "max_attempts": quiz.max_attempts,
+            "status": quiz.status,
+            "questions": [
+                {
+                    "id": q.id,
+                    "question_text": q.question_text,
+                    "question_type": q.question_type,
+                    "answers": q.answers,
+                    "correct_answers": q.correct_answers,
+                    "explanation": q.explanation,
+                    "source_fragment": q.source_fragment,
+                    "points": q.points,
+                    "order_idx": q.order_idx,
+                }
+                for q in questions
+            ],
+        }
+
+
+# ============================================================
+# 3. Сохранение отредактированной викторины
+# ============================================================
+class UpdateQuizRequest(BaseModel):
+    title: str | None = None
+    difficulty: str | None = None
+    full_time_seconds: int | None = None
+    question_time_seconds: int | None = None
+    max_attempts: int | None = None
+    status: str | None = None
+
+
+class UpdateQuestionRequest(BaseModel):
+    question_text: str | None = None
+    question_type: str | None = None
+    answers: list | None = None
+    correct_answers: list | None = None
+    explanation: str | None = None
+    source_fragment: str | None = None
+    points: int | None = None
+    order_idx: int | None = None
+
+
+@router.put("/{quiz_id}")
+def update_quiz(quiz_id: str, data: UpdateQuizRequest):
+    with get_db_session() as session:
+        quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Викторина не найдена")
+
+        if data.title is not None:
+            quiz.title = data.title
+        if data.difficulty is not None:
+            quiz.difficulty = data.difficulty
+        if data.full_time_seconds is not None:
+            quiz.full_time_seconds = data.full_time_seconds
+        if data.question_time_seconds is not None:
+            quiz.question_time_seconds = data.question_time_seconds
+        if data.max_attempts is not None:
+            quiz.max_attempts = data.max_attempts
+        if data.status is not None:
+            quiz.status = data.status
+
+        session.commit()
+
+    return {"ok": True, "quiz_id": quiz_id}
+
+
+@router.put("/{quiz_id}/questions/{question_id}")
+def update_question(quiz_id: str, question_id: str, data: UpdateQuestionRequest):
+    with get_db_session() as session:
+        question = session.query(Question).filter(
+            Question.id == question_id,
+            Question.quiz_id == quiz_id
+        ).first()
+
+        if not question:
+            raise HTTPException(status_code=404, detail="Вопрос не найден")
+
+        if data.question_text is not None:
+            question.question_text = data.question_text
+        if data.question_type is not None:
+            question.question_type = data.question_type
+        if data.answers is not None:
+            question.answers = data.answers
+        if data.correct_answers is not None:
+            question.correct_answers = data.correct_answers
+        if data.explanation is not None:
+            question.explanation = data.explanation
+        if data.source_fragment is not None:
+            question.source_fragment = data.source_fragment
+        if data.points is not None:
+            question.points = data.points
+        if data.order_idx is not None:
+            question.order_idx = data.order_idx
+
+        session.commit()
+
+    return {"ok": True, "question_id": question_id}
+
+
+# ============================================================
+# 4. Роуты для ученика
+# ============================================================
+
+class StartQuizRequest(BaseModel):
+    student_name: str
+
+
+@router.post("/{quiz_id}/start")
+def start_quiz_route(quiz_id: str, data: StartQuizRequest):
+    try:
+        attempt_id = start_quiz(quiz_id=quiz_id, student_name=data.student_name)
+        return {"attempt_id": attempt_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{quiz_id}/questions")
+def get_questions_route(quiz_id: str):
+    """Возвращает вопросы БЕЗ правильных ответов (для ученика)"""
+    questions = get_quiz_questions(quiz_id)
+    if not questions:
+        raise HTTPException(status_code=404, detail="Викторина не найдена или не содержит вопросов")
+    return {"questions": questions}
+
+
+class SubmitAnswerRequest(BaseModel):
+    question_id: str
+    answer: str | list[str]
+
+
+@router.post("/attempt/{attempt_id}/answer")
+def submit_answer_route(attempt_id: str, data: SubmitAnswerRequest):
+    try:
+        result = submit_answer(
+            attempt_id=attempt_id,
+            question_id=data.question_id,
+            answer=data.answer
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/attempt/{attempt_id}/finish")
+def finish_quiz_route(attempt_id: str):
+    try:
+        result = finish_quiz(attempt_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ============================================================
+# 5. Результаты для учителя
+# ============================================================
+@router.get("/{quiz_id}/results")
+def get_results_route(quiz_id: str):
+    results = get_quiz_results(quiz_id)
+    if not results:
+        raise HTTPException(status_code=404, detail="Результаты не найдены")
+    return {"results": results}

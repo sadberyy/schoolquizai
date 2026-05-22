@@ -1,14 +1,26 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.db.database import get_db_session
-from app.db.models import Quiz, QuizAttempt, StudentAnswer, Question
+from app.db.models import Quiz, Question, Result
 
 
-def _is_answer_correct(student_answer, correct_answers) -> bool:
-    """Сравнивает ответ ученика с correct_answers (строка или JSON-список)."""
+def _utcnow():
+    return datetime.now(timezone.utc)
+
+
+def _check_answer(student_answer, correct_answers) -> bool:
+    """
+    Сравнивает ответ ученика с правильными ответами.
+    
+    Поддерживает:
+    - одиночный выбор: student_answer = "a", correct_answers = ["a"]
+    - множественный выбор: student_answer = ["a", "c"], correct_answers = ["a", "c"]
+    - true_false: student_answer = "Верно", correct_answers = ["Верно"]
+    """
     if correct_answers is None:
         return False
 
+    # Приводим к списку для единообразного сравнения
     correct_list = (
         correct_answers if isinstance(correct_answers, list) else [correct_answers]
     )
@@ -21,92 +33,147 @@ def _is_answer_correct(student_answer, correct_answers) -> bool:
     )
 
 
-def start_quiz_attempt(
-    access_token: str,
-    student_name: str,
-    student_surname: str | None = None,
-):
+def start_quiz(quiz_id: str, student_name: str) -> str:
+    """
+    Начинает новую попытку прохождения викторины.
+    
+    Возвращает ID созданной записи в таблице results (attempt_id).
+    """
     with get_db_session() as session:
-        quiz = (
-            session.query(Quiz)
-            .filter(Quiz.access_token == access_token)
-            .filter(Quiz.status == "published")
-            .first()
-        )
+        quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
 
         if quiz is None:
-            raise ValueError("Викторина не найдена или не опубликована")
+            raise ValueError("Викторина не найдена")
 
-        max_score = sum(question.points for question in quiz.questions)
+        # Считаем максимальный балл за викторину
+        max_score = sum(q.points for q in quiz.questions)
 
-        attempt = QuizAttempt(
-            quiz_id=quiz.id,
+        # Определяем номер попытки
+        existing_attempts = (
+            session.query(Result)
+            .filter(Result.quiz_id == quiz_id, Result.student_name == student_name)
+            .count()
+        )
+        attempt_number = existing_attempts + 1
+
+        # Проверяем, не превышен ли лимит попыток
+        if quiz.max_attempts and attempt_number > quiz.max_attempts:
+            raise ValueError(f"Превышено количество попыток (максимум {quiz.max_attempts})")
+
+        result = Result(
+            quiz_id=quiz_id,
             student_name=student_name,
-            student_surname=student_surname,
+            score=0,
             max_score=max_score,
-            started_at=datetime.utcnow(),
+            attempt_number=attempt_number,
         )
 
-        session.add(attempt)
-        session.flush()
-        session.refresh(attempt)
+        session.add(result)
+        session.commit()
+        session.refresh(result)
 
-        return attempt.id
+        return result.id
 
 
-def save_student_answer(
-    attempt_id: str,
-    question_id: str,
-    answer,
-):
+def get_quiz_questions(quiz_id: str) -> list[dict]:
+    """
+    Возвращает список вопросов викторины (без правильных ответов!) для показа ученику.
+    """
+    with get_db_session() as session:
+        questions = (
+            session.query(Question)
+            .filter(Question.quiz_id == quiz_id)
+            .order_by(Question.order_idx)
+            .all()
+        )
+
+        return [
+            {
+                "id": q.id,
+                "question_text": q.question_text,
+                "question_type": q.question_type,
+                "answers": q.answers,
+                "points": q.points,
+                "order_idx": q.order_idx,
+            }
+            for q in questions
+        ]
+
+
+def submit_answer(attempt_id: str, question_id: str, answer) -> dict:
+    """
+    Проверяет ответ ученика на один вопрос и обновляет счёт.
+    
+    Возвращает:
+    - is_correct: правильно ли ответил
+    - points_received: сколько баллов получено
+    """
     with get_db_session() as session:
         question = session.query(Question).filter(Question.id == question_id).first()
-
         if question is None:
             raise ValueError("Вопрос не найден")
 
-        is_correct = _is_answer_correct(answer, question.correct_answers)
+        result = session.query(Result).filter(Result.id == attempt_id).first()
+        if result is None:
+            raise ValueError("Попытка не найдена")
+
+        is_correct = _check_answer(answer, question.correct_answers)
         points_received = question.points if is_correct else 0
 
-        student_answer = StudentAnswer(
-            attempt_id=attempt_id,
-            question_id=question_id,
-            answer=answer,
-            is_correct=is_correct,
-            points_received=points_received,
-        )
+        # Обновляем общий счёт
+        result.score = (result.score or 0) + points_received
 
-        session.add(student_answer)
-
-        attempt = session.query(QuizAttempt).filter(QuizAttempt.id == attempt_id).first()
-
-        if attempt is None:
-            raise ValueError("Попытка не найдена")
-
-        attempt.score = (attempt.score or 0) + points_received
-
-        session.flush()
-        session.refresh(student_answer)
-
-        return student_answer.id
-
-
-def finish_quiz_attempt(attempt_id: str):
-    with get_db_session() as session:
-        attempt = session.query(QuizAttempt).filter(QuizAttempt.id == attempt_id).first()
-
-        if attempt is None:
-            raise ValueError("Попытка не найдена")
-
-        now = datetime.utcnow()
-        attempt.finished_at = now
-
-        if attempt.started_at:
-            attempt.duration_seconds = int((now - attempt.started_at).total_seconds())
+        session.commit()
 
         return {
-            "attempt_id": attempt.id,
-            "score": attempt.score,
-            "max_score": attempt.max_score,
-            "duration_seconds": attempt.duration_seconds,
+            "is_correct": is_correct,
+            "points_received": points_received,
+            "total_score": result.score,
+            "explanation": question.explanation if is_correct else None,
         }
+
+
+def finish_quiz(attempt_id: str) -> dict:
+    """
+    Завершает попытку и возвращает финальный результат.
+    """
+    with get_db_session() as session:
+        result = session.query(Result).filter(Result.id == attempt_id).first()
+        if result is None:
+            raise ValueError("Попытка не найдена")
+
+        result.duration_seconds = 0  # TODO: передавать реальное время с фронтенда
+
+        session.commit()
+
+        return {
+            "attempt_id": result.id,
+            "student_name": result.student_name,
+            "score": result.score,
+            "max_score": result.max_score,
+            "attempt_number": result.attempt_number,
+        }
+
+
+def get_quiz_results(quiz_id: str) -> list[dict]:
+    """
+    Возвращает все результаты по викторине (для учителя).
+    """
+    with get_db_session() as session:
+        results = (
+            session.query(Result)
+            .filter(Result.quiz_id == quiz_id)
+            .order_by(Result.student_name, Result.attempt_number)
+            .all()
+        )
+
+        return [
+            {
+                "student_name": r.student_name,
+                "score": r.score,
+                "max_score": r.max_score,
+                "attempt_number": r.attempt_number,
+                "duration_seconds": r.duration_seconds,
+            }
+            for r in results
+        ]
