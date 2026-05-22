@@ -3,21 +3,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from contextlib import contextmanager
 
-# =========================
-# ПУТИ К БАЗАМ ДАННЫХ
-# =========================
-LIBRARY_DB_PATH = "../data/library.db"  # Постоянная база (учебники)
-TEMP_DB_PATH = "../data/temp_uploads.db"  # Временная база (материалы учителя)
+LIBRARY_DB_PATH = "../data/library.db"  # постоянная база (учебники)
+TEMP_DB_PATH = "../data/temp_uploads.db"  # временная база (материалы учителя)
 
 os.makedirs("../data", exist_ok=True)
 
-# =========================
-# МОДЕЛИ (можно вынести в отдельный models.py при желании)
-# =========================
 Base = declarative_base()
 
-# Здесь можно импортировать твои модели Document и Block
-# Для удобства я их продублирую (или импортируй из другого файла)
+# Здесь можно импортировать модели Document и Block
 from sqlalchemy import Column, String, Text, Integer, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -50,9 +43,7 @@ class Block(Base):
     document = relationship("Document", back_populates="blocks")
 
 
-# =========================
-# СОЗДАНИЕ ДВУХ БАЗ ДАННЫХ
-# =========================
+# создание двух бд
 
 def create_engine_and_session(db_path: str):
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
@@ -61,10 +52,7 @@ def create_engine_and_session(db_path: str):
     return engine, Session
 
 
-# Постоянная база (учебники)
 library_engine, LibrarySession = create_engine_and_session(LIBRARY_DB_PATH)
-
-# Временная база (загрузки учителя)
 temp_engine, TempSession = create_engine_and_session(TEMP_DB_PATH)
 
 
@@ -100,9 +88,7 @@ def get_temp_session():
         session.close()
 
 
-# =========================
-# УТИЛИТЫ ДЛЯ ВРЕМЕННОЙ БАЗЫ
-# =========================
+# утилиты для временной бд
 
 def clear_temp_database():
     """Полностью очищает временную базу (вызывать после создания викторины)"""
@@ -119,9 +105,7 @@ def get_temp_documents_count() -> int:
         return session.query(Document).count()
 
 
-# =========================
-# ИНИЦИАЛИЗАЦИЯ
-# =========================
+# инициализация бд
 
 def init_databases():
     """Создаёт обе базы данных и таблицы"""

@@ -204,7 +204,7 @@ class Question(Base):
 
     __tablename__ = "questions"
 
-    __table_args__ = (UniqueConstraint("quiz_id", "order_idx", name="uq_question_order"))
+    __table_args__ = (UniqueConstraint("quiz_id", "order_idx", name="uq_question_order"),)
 
     id = Column(String, primary_key=True, default=generate_uuid)
 
