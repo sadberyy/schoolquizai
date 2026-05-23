@@ -1,6 +1,11 @@
 from enum import Enum
+from io import BytesIO
+from typing import Literal
+
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from urllib.parse import quote
 
 from app.core.logger import logger
 from app.db.database import get_db_session
@@ -10,6 +15,7 @@ from app.schemas.material import SourceFragment
 from app.services.material_service import material_service
 from app.services.gigachat_service import gigachat_service
 from app.services.quiz_service import quiz_service
+from app.services.presentation_export_service import export_quiz
 from app.services.attempts_service import (
     start_quiz,
     get_quiz_questions,
@@ -193,7 +199,29 @@ async def generate_quiz_from_materials(
 
 
 # ============================================================
-# 2. Получение викторины по ID (для редактирования)
+# 2. Экспорт викторины в презентацию / PDF
+# ============================================================
+@router.get("/{quiz_id}/export")
+def export_quiz_route(
+    quiz_id: str,
+    format: Literal["pptx", "pdf"] = "pptx",
+    mode: Literal["teacher", "student"] = "teacher",
+):
+    file_bytes, filename, media_type = export_quiz(quiz_id, format, mode)
+    ascii_fallback = "quiz." + filename.rsplit(".", 1)[-1] if "." in filename else "quiz"
+    disposition = (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
+    return StreamingResponse(
+        BytesIO(file_bytes),
+        media_type=media_type,
+        headers={"Content-Disposition": disposition},
+    )
+
+
+# ============================================================
+# 3. Получение викторины по ID (для редактирования)
 # ============================================================
 @router.get("/{quiz_id}")
 def get_quiz(quiz_id: str):

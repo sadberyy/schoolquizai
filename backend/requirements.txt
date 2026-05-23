@@ -11,4 +11,4 @@ python-multipart
 pypdf
 python-pptx
 python-docx
-python-multipart
+fpdf2
