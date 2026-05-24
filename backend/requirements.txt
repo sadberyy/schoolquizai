@@ -12,3 +12,6 @@ pypdf
 python-pptx
 python-docx
 fpdf2
+matplotlib
+Pillow
+reportlab

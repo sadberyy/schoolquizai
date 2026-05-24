@@ -1,5 +1,5 @@
 import json
-
+import re
 from app.schemas.quiz import GenerateQuizRequest, GenerateQuizResponse, DifficultyLevel
 from app.schemas.material import SourceFragment
 from app.services.gigachat_service import gigachat_service
@@ -26,34 +26,49 @@ class QuizService:
     """
 
     def _extract_json(self, raw_text: str) -> dict:
-        """
-        Извлекает JSON из сырого ответа языковой модели.
-
-        Иногда модель возвращает JSON не как чистый текст, а внутри markdown-блока:
-
-        ```json
-        {...}
-        ```
-
-        Этот метод удаляет markdown-обёртку и парсит строку через json.loads.
-
-        Args:
-            raw_text: сырой текстовый ответ модели.
-
-        Returns:
-            Распарсенный JSON в виде словаря.
-
-        Raises:
-            json.JSONDecodeError: если после очистки текст всё равно не является валидным JSON.
-        """
-
+        """Извлекает JSON между [JSON_START] и [JSON_END], чинит переносы строк и LaTeX."""
+    
         raw_text = raw_text.strip()
-
-        # Удаляем markdown-обёртку, если модель вернула JSON внутри ```json ... ```
+    
+        # начало и конец json
+        start = raw_text.find('[JSON_START]')
+        end = raw_text.find('[JSON_END]')
+    
+        if start != -1 and end != -1:
+            raw_text = raw_text[start + len('[JSON_START]'):end].strip()
+        elif start != -1:
+            raw_text = raw_text[start + len('[JSON_START]'):].strip()
+    
+        # Удаляем markdown-обёртку
         if raw_text.startswith("```"):
             raw_text = raw_text.replace("```json", "").replace("```", "").strip()
-
+    
+        # незавершенные строки
+        last_brace = raw_text.rfind('}')
+        if last_brace > 0:
+            raw_text = raw_text[:last_brace + 1]
+    
+        # если структуры не закрылись
+        open_braces = raw_text.count('{')
+        close_braces = raw_text.count('}')
+        open_brackets = raw_text.count('[')
+        close_brackets = raw_text.count(']')
+    
+        raw_text += '}' * (open_braces - close_braces)
+        raw_text += ']' * (open_brackets - close_brackets)
+    
+        def fix_newlines(match):
+            content = match.group(1)
+            content = content.replace('\n', '\\n').replace('\r', '')
+            return f'"{content}"'
+    
+        raw_text = re.sub(r'"([^"]*)"', fix_newlines, raw_text)
+    
+        # заменяем \ перед буквами на \\ (latex-команды)
+        raw_text = re.sub(r'\\([a-zA-Z])', r'\\\\\1', raw_text)
+    
         return json.loads(raw_text)
+
 
     def _enrich_questions_with_source_fragments(
         self,

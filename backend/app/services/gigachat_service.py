@@ -29,6 +29,7 @@ class GigaChatService:
             response = giga.chat({
                 "messages": formatted_messages,
                 "temperature": temperature,
+                "max_tokens": 10000,
             })
 
         return response.choices[0].message.content
@@ -58,6 +59,7 @@ class GigaChatService:
                 "messages": formatted_messages,
                 "attachments": attachments,
                 "temperature": temperature,
+                "max_tokens": 10000,
             })
 
         return response.choices[0].message.content
