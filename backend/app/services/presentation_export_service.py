@@ -42,7 +42,7 @@ def _format_answers(correct_answers) -> str:
     if correct_answers is None:
         return ""
     if isinstance(correct_answers, list):
-        return ", ".join(str(item) for item in correct_answers)
+        return "\n".join(str(item) for item in correct_answers)
     return str(correct_answers)
 
 
@@ -186,46 +186,61 @@ def _build_pdf(
     pdf.set_font("DejaVu", size=12)
     line_width = pdf.epw
 
+    # Титульник
     pdf.add_page()
     pdf.set_font("DejaVu", "B", 18)
-    pdf.multi_cell(line_width, 10, quiz.title)
+    pdf.cell(line_width, 10, quiz.title, new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     subtitle = _quiz_subtitle(quiz)
     if subtitle:
         pdf.set_font("DejaVu", size=12)
-        pdf.multi_cell(line_width, 8, subtitle)
+        pdf.cell(line_width, 8, subtitle, new_x="LMARGIN", new_y="NEXT")
         pdf.ln(6)
 
+    # Вопросы
     for index, question in enumerate(questions, start=1):
         pdf.add_page()
         pdf.set_font("DejaVu", "B", 14)
-        pdf.multi_cell(line_width, 8, f"Вопрос {index}")
-        pdf.ln(2)
+        pdf.cell(line_width, 8, f"Вопрос {index}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
 
+        # Текст вопроса
         pdf.set_font("DejaVu", size=12)
         pdf.multi_cell(line_width, 7, question.question_text)
         pdf.ln(2)
 
+        # Тип вопроса
         type_label = _TYPE_LABELS.get(question.question_type, question.question_type)
         pdf.set_font("DejaVu", size=11)
-        pdf.multi_cell(line_width, 6, f"Тип: {type_label}")
-        pdf.ln(1)
+        pdf.cell(line_width, 6, f"Тип: {type_label}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
 
+        # Варианты ответов
+        pdf.set_font("DejaVu", size=12)
         for option in question.answers or []:
-            pdf.multi_cell(line_width, 6, f"- {_format_option(option)}")
+            option_text = f"- {_format_option(option)}"
+            pdf.cell(line_width, 7, option_text, new_x="LMARGIN", new_y="NEXT")
 
+        # Правильные ответы и пояснение (только для учителя)
         if mode == "teacher":
-            pdf.ln(2)
+            pdf.ln(4)
             pdf.set_font("DejaVu", "B", size=11)
-            pdf.multi_cell(
-                line_width,
-                6,
-                f"Правильный ответ: {_format_answers(question.correct_answers)}",
-            )
+            pdf.cell(line_width, 7, "Правильный ответ:", new_x="LMARGIN", new_y="NEXT")
+            
+            pdf.set_font("DejaVu", size=11)
+            if isinstance(question.correct_answers, list):
+                for answer in question.correct_answers:
+                    pdf.cell(line_width, 7, str(answer), new_x="LMARGIN", new_y="NEXT")
+            else:
+                pdf.cell(line_width, 7, str(question.correct_answers or ""), new_x="LMARGIN", new_y="NEXT")
+            
             if question.explanation:
+                pdf.ln(4)
+                pdf.set_font("DejaVu", "B", size=11)
+                pdf.cell(line_width, 7, "Пояснение:", new_x="LMARGIN", new_y="NEXT")
                 pdf.set_font("DejaVu", size=11)
-                pdf.multi_cell(line_width, 6, f"Пояснение: {question.explanation}")
+                pdf.multi_cell(line_width, 7, question.explanation)
 
     filename = _safe_filename(quiz.title, "pdf")
     media_type = "application/pdf"
