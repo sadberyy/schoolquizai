@@ -148,3 +148,38 @@
     --removed-body-scroll-bar-size: 0px !important;
     }
 }
+
+.large-font {
+  font-size: 150% !important;
+}
+.large-font button,
+.large-font .btn,
+.large-font [role="button"] {
+  font-size: 150% !important;
+  padding: 16px 32px !important;
+  min-height: 56px !important;
+  min-width: 56px !important;
+}
+.large-font input,
+.large-font select,
+.large-font textarea {
+  font-size: 150% !important;
+  padding: 12px 16px !important;
+  min-height: 48px !important;
+}
+.large-font table,
+.large-font th,
+.large-font td {
+  font-size: 150% !important;
+}
+.large-font svg,
+.large-font .icon,
+.large-font [class*="lucide"] {
+  width: 1.5em !important;
+  height: 1.5em !important;
+}
+.large-font h1 { font-size: 250% !important; }
+.large-font h2 { font-size: 220% !important; }
+.large-font h3 { font-size: 200% !important; }
+.large-font label { font-size: 150% !important; }
+.large-font .card { padding: 24px !important; }

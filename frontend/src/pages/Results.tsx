@@ -265,7 +265,7 @@ export default function Results({ quizData, results }: ResultsProps) {
                       onClick={() => handleSort("name")}
                       className={headerButtonClass}
                     >
-                      Имя и фамилия
+                      Имя и фамилия / Команда
                       <SortIcon
                         column="name"
                         sortKey={sortKey}

@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom"
 
 import { PageLayout } from "@/components/PageLayout"
 import CreateQuiz from "@/pages/CreateQuiz"
-import Dashboard from "@/pages/Dashboard"
+import Dashboard, { MOCK_QUIZZES, type DashboardQuiz } from "@/pages/Dashboard"
 import EditQuiz from "@/pages/EditQuiz"
 import Results from "@/pages/Results"
 import StudentQuiz from "@/pages/StudentQuiz"
@@ -12,6 +12,7 @@ import type { User } from "@/types/user"
 
 function App() {
   const [user, setUser] = useState<User | null>(null)
+  const [quizzes, setQuizzes] = useState<DashboardQuiz[]>(MOCK_QUIZZES)
 
   const handleLogin = (userData: User) => {
     setUser(userData)
@@ -19,6 +20,10 @@ function App() {
 
   const handleLogout = () => {
     setUser(null)
+  }
+
+  const handleDeleteQuiz = (quizId: string) => {
+    setQuizzes((prev) => prev.filter((q) => q.id !== quizId))
   }
 
   return (
@@ -30,8 +35,10 @@ function App() {
             element={
               <Dashboard
                 user={user}
+                quizzes={quizzes}
                 onLogin={handleLogin}
                 onLogout={handleLogout}
+                onDeleteQuiz={handleDeleteQuiz}
               />
             }
           />

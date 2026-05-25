@@ -114,8 +114,7 @@ export default function StudentQuiz({
   )
 
   const [stage, setStage] = useState<Stage>("intro")
-  const [firstName, setFirstName] = useState("")
-  const [lastName, setLastName] = useState("")
+  const [participantName, setParticipantName] = useState("")
   const [attemptNumber, setAttemptNumber] = useState(1)
   const [questionIndex, setQuestionIndex] = useState(0)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -135,7 +134,7 @@ export default function StudentQuiz({
   const totalQuestions = quiz.questions.length
   const currentQuestion = quiz.questions[questionIndex]
   const isLastQuestion = questionIndex >= totalQuestions - 1
-  const canStart = firstName.trim().length > 0 && lastName.trim().length > 0
+  const canStart = participantName.trim().length > 0
   const hasAttemptsLeft = attemptNumber < quiz.attempts
 
   useEffect(() => {
@@ -168,24 +167,26 @@ export default function StudentQuiz({
   }, [quiz.questions, recordAnswer])
 
   const buildResult = useCallback(
-    (): QuizResultData => ({
-      quizId: quiz.id,
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      fullName: `${firstName.trim()} ${lastName.trim()}`,
-      score,
-      maxScore,
-      elapsedSeconds,
-      attemptNumber,
-      maxAttempts: quiz.attempts,
-      answers,
-      completedAt: new Date().toISOString(),
-    }),
+    (): QuizResultData => {
+      const name = participantName.trim()
+      return {
+        quizId: quiz.id,
+        firstName: name,
+        lastName: "",
+        fullName: name,
+        score,
+        maxScore,
+        elapsedSeconds,
+        attemptNumber,
+        maxAttempts: quiz.attempts,
+        answers,
+        completedAt: new Date().toISOString(),
+      }
+    },
     [
       quiz.id,
       quiz.attempts,
-      firstName,
-      lastName,
+      participantName,
       score,
       maxScore,
       elapsedSeconds,
@@ -374,23 +375,14 @@ export default function StudentQuiz({
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="firstName">Имя</Label>
+              <Label htmlFor="participantName">Имя и фамилия / Команда</Label>
               <Input
-                id="firstName"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                placeholder="Введите имя"
-                autoComplete="given-name"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="lastName">Фамилия</Label>
-              <Input
-                id="lastName"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                placeholder="Введите фамилию"
-                autoComplete="family-name"
+                id="participantName"
+                value={participantName}
+                onChange={(e) => setParticipantName(e.target.value)}
+                placeholder="Введите имя и фамилию или название команды"
+                autoComplete="name"
+                required
               />
             </div>
             <Button
@@ -413,7 +405,7 @@ export default function StudentQuiz({
         <Card className="w-full max-w-lg border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl sm:text-3xl">
-              {firstName.trim()} {lastName.trim()}, ваш результат
+              {participantName.trim()}, ваш результат
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4 text-center text-lg">

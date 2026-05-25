@@ -420,6 +420,24 @@ def delete_question(quiz_id: str, question_id: str):
     
     return {"ok": True, "deleted_question_id": question_id}
 
+@router.delete("/{quiz_id}")
+def delete_quiz(quiz_id: str):
+    """Удаляет викторину и все связанные вопросы, результаты"""
+    with get_db_session() as session:
+        quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Викторина не найдена")
+        
+        # Удаляем связанные результаты
+        session.query(Result).filter(Result.quiz_id == quiz_id).delete()
+        # Удаляем связанные вопросы
+        session.query(Question).filter(Question.quiz_id == quiz_id).delete()
+        # Удаляем саму викторину
+        session.delete(quiz)
+        session.commit()
+    
+    return {"ok": True, "deleted_quiz_id": quiz_id}
+    
 
 # роуты для ученика
 class StartQuizRequest(BaseModel):
