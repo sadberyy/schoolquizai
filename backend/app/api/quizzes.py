@@ -16,6 +16,7 @@ from app.services.material_service import material_service
 from app.services.gigachat_service import gigachat_service
 from app.services.quiz_service import quiz_service
 from app.services.presentation_export_service import export_quiz
+from app.services.results_export_service import export_results_pdf
 from app.services.attempts_service import (
     start_quiz,
     get_quiz_questions,
@@ -492,7 +493,31 @@ def finish_quiz_route(attempt_id: str):
 # результаты для учителя
 @router.get("/{quiz_id}/results")
 def get_results_route(quiz_id: str):
-    results = get_quiz_results(quiz_id)
-    if not results:
-        raise HTTPException(status_code=404, detail="Результаты не найдены")
-    return {"results": results}
+    with get_db_session() as session:
+        quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Викторина не найдена")
+    return {"results": get_quiz_results(quiz_id)}
+
+
+@router.get("/{quiz_id}/results/export")
+def export_results_route(
+    quiz_id: str,
+    sort_by: Literal["name", "score", "time", "attempt"] = "score",
+    sort_dir: Literal["asc", "desc"] = "desc",
+):
+    file_bytes, filename, media_type = export_results_pdf(
+        quiz_id, sort_by=sort_by, sort_dir=sort_dir
+    )
+    ascii_fallback = "results.pdf"
+    if "." in filename:
+        ascii_fallback = "results." + filename.rsplit(".", 1)[-1]
+    disposition = (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
+    return StreamingResponse(
+        BytesIO(file_bytes),
+        media_type=media_type,
+        headers={"Content-Disposition": disposition},
+    )
