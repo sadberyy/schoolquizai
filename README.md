@@ -14,10 +14,10 @@
    GIGACHAT_CA_BUNDLE_FILE=название_вашего_сертификата.crt  
    FRONTEND_ORIGIN=[http://localhost:5173](http://localhost:5173)
 2. Выполнить следующие команды в терминале, находясь в папке **backend**:
-  cd backend  
+   cd backend  
    python -m venv .venv  
    .venv\Scripts\Activate.ps1  
    pip install -r requirements.txt (либо .venv\Scripts\python.exe -m pip install -r requirements.txt)  
    uvicorn app.main:app --reload
-3. Открыть Swagger UI в браузере по адресу [http://localhost:8000/docs](http://localhost:8000/docs)
+4. Открыть Swagger UI в браузере по адресу [http://localhost:8000/docs](http://localhost:8000/docs)
 
