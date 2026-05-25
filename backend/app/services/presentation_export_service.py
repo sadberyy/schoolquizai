@@ -16,6 +16,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
+from app.services.latex_renderer import render_latex_to_png
 
 import matplotlib
 matplotlib.use('Agg')
@@ -93,40 +94,6 @@ def _replace_latex_with_parts(text: str) -> list[dict]:
     if not parts:
         parts = [{"type": "text", "content": text}]
     return parts
-
-
-# Рендеринг LaTeX в формат PNG
-def _render_latex_matplotlib(latex: str) -> bytes | None:
-    """Рендерит LaTeX через matplotlib mathtext."""
-    clean = latex.strip()
-    
-    # замена неподдерживаемых команд
-    replacements = {
-        '\\le': '\\leq',
-        '\\ge': '\\geq',
-        '\\rightarrow': '\\to',
-        '\\left': '',
-        '\\right': '',
-    }
-    for old, new in replacements.items():
-        clean = clean.replace(old, new)
-    
-    clean = f'${clean}$'
-    
-    try:
-        fig, ax = plt.subplots(figsize=(0.01, 0.01))
-        ax.axis('off')
-        ax.text(0, 0, clean, fontsize=12, ha='left', va='bottom')
-        fig.canvas.draw()
-        
-        buf = BytesIO()
-        fig.savefig(buf, format='png', dpi=120, bbox_inches='tight', pad_inches=0.05)
-        plt.close(fig)
-        buf.seek(0)
-        return buf.read()
-    except Exception:
-        plt.close('all')
-        return None
 
 
 # Загрузка викторины
@@ -273,8 +240,8 @@ def _draw_inline_text(c: canvas.Canvas, text: str, x: float, y: float, max_width
         if i < len(text_parts) - 1 and latex_index < len(latex_parts):
             latex = latex_parts[latex_index]
             latex_index += 1
-            
-            img_bytes = _render_latex_matplotlib(latex)
+
+            img_bytes = render_latex_to_png(latex)
             if img_bytes:
                 try:
                     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:

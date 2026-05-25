@@ -16,3 +16,4 @@ matplotlib
 Pillow
 reportlab
 sqlalchemy
+playwright
