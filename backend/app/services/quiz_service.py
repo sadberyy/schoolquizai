@@ -1,9 +1,14 @@
 import json
 import re
-from app.schemas.quiz import GenerateQuizRequest, GenerateQuizResponse, DifficultyLevel
+from app.schemas.quiz import (GenerateQuizRequest,
+                              GenerateQuizResponse,
+                              DifficultyLevel,
+                              QuizQuestion,
+                              QuestionIssue
+                              )
 from app.schemas.material import SourceFragment
 from app.services.gigachat_service import gigachat_service
-from app.services.prompt_service import build_quiz_prompt
+from app.services.prompt_service import build_quiz_prompt, build_quiz_fix_prompt
 from app.services.material_service import material_service
 from app.core.logger import logger
 
@@ -490,6 +495,117 @@ class QuizService:
             logger.error(f"JSON_PARSE_ERROR_FROM_FRAGMENTS: {str(e)}")
             logger.error(f"BROKEN_RAW_RESPONSE_FROM_FRAGMENTS: {raw[:2000]}")
             raise
+
+    def fix_quiz_questions(
+            self,
+            quiz: GenerateQuizResponse,
+            issues: list[QuestionIssue],
+            fragments: list[SourceFragment],
+            subject: str,
+            grade: str,
+            topic: str,
+            difficulty: str,
+    ) -> GenerateQuizResponse:
+        """
+        Точечно чинит проблемные вопросы в викторине.
+
+        Берёт только те вопросы, у которых есть critical/warning issues,
+        отправляет их в LLM с подробным описанием проблем, получает
+        исправленные версии и сшивает обратно в исходную викторину.
+
+        Args:
+            quiz: исходная викторина с проблемами.
+            issues: список всех найденных проблем.
+            fragments: исходные фрагменты материала.
+            subject, grade, topic, difficulty: параметры исходного запроса.
+
+        Returns:
+            Новая викторина с исправленными вопросами на тех же позициях.
+            Если что-то пошло не так — возвращает исходную викторину.
+        """
+        # 1. Группируем проблемы по индексу вопроса
+        issues_by_idx: dict[int, list[QuestionIssue]] = {}
+        for issue in issues:
+            # Чиним только critical и warning, info — игнорируем
+            if issue.severity in ("critical", "warning"):
+                issues_by_idx.setdefault(issue.question_index, []).append(issue)
+
+        if not issues_by_idx:
+            logger.info("FIX_QUIZ | nothing to fix (only info-level issues)")
+            return quiz
+
+        # 2. Собираем проблемные вопросы для отправки в LLM
+        problematic = []
+        for idx, idx_issues in issues_by_idx.items():
+            if idx < 0 or idx >= len(quiz.questions):
+                logger.warning(f"FIX_QUIZ | invalid question_index={idx}, skipping")
+                continue
+            problematic.append({
+                "original_index": idx,
+                "question": quiz.questions[idx].model_dump(),
+                "issues": [iss.model_dump() for iss in idx_issues],
+            })
+
+        if not problematic:
+            return quiz
+
+        logger.info(f"FIX_QUIZ | sending {len(problematic)} problematic questions to LLM")
+
+        # 3. Строим промпт и зовём LLM
+        prompt = build_quiz_fix_prompt(
+            problematic_questions=problematic,
+            fragments=fragments,
+            subject=subject,
+            grade=grade,
+            topic=topic,
+            difficulty=difficulty,
+        )
+
+        raw = gigachat_service.chat(
+            messages=[
+                {"role": "system",
+                 "content": "Ты — методист, исправляющий ошибки в школьных викторинах. Возвращай только валидный JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.1,  # низкая, чтобы не «творил» новые ошибки
+        )
+
+        logger.info(f"RAW_FIX_RESPONSE: {raw[:2000]}")
+
+        # 4. Парсим ответ
+        try:
+            data = self._extract_json(raw)
+            fixed_questions = data.get("fixed_questions", [])
+        except Exception as exc:
+            logger.error(f"FIX_QUIZ_PARSE_FAILED: {exc}")
+            return quiz  # graceful fallback — отдаём исходную
+
+        # 5. Сшиваем: берём исходную викторину и заменяем починенные вопросы
+        new_questions = list(quiz.questions)  # копия
+        fixed_count = 0
+        for item in fixed_questions:
+            idx = item.get("original_index")
+            q_data = item.get("question")
+            if idx is None or q_data is None:
+                continue
+            if idx < 0 or idx >= len(new_questions):
+                logger.warning(f"FIX_QUIZ | bad original_index from LLM: {idx}")
+                continue
+            try:
+                new_questions[idx] = QuizQuestion(**q_data)
+                fixed_count += 1
+            except Exception as exc:
+                logger.warning(f"FIX_QUIZ | failed to parse fixed question at idx={idx}: {exc}")
+
+        logger.info(f"FIX_QUIZ | applied {fixed_count} fixes out of {len(problematic)} requested")
+
+        return GenerateQuizResponse(
+            quiz_title=quiz.quiz_title,
+            subject=quiz.subject,
+            grade=quiz.grade,
+            topic=quiz.topic,
+            questions=new_questions,
+        )
 
 
 # Глобальный экземпляр сервиса.

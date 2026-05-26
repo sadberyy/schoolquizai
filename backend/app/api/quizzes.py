@@ -9,13 +9,14 @@ from urllib.parse import quote
 
 from app.core.logger import logger
 from app.db.database import get_db_session
-from app.db.models import Quiz, Question, Result
+from app.db.models import Quiz, Question
 from app.schemas.quiz import DifficultyLevel
 from app.schemas.material import SourceFragment
 from app.services.material_service import material_service
 from app.services.gigachat_service import gigachat_service
 from app.services.quiz_service import quiz_service
 from app.services.presentation_export_service import export_quiz
+from app.services.quiz_validation_service import quiz_validation_service
 from app.services.attempts_service import (
     start_quiz,
     get_quiz_questions,
@@ -43,29 +44,10 @@ def _normalize_source_text(value: str | None) -> str:
         return ""
     return text
 
-# список всех викторин для дашборда
-@router.get("/list")
-def list_quizzes():
-    with get_db_session() as session:
-        quizzes = session.query(Quiz).order_by(Quiz.id.desc()).all()
-        
-        return {
-            "quizzes": [
-                {
-                    "id": q.id,
-                    "title": q.title,
-                    "subject": q.subject,
-                    "grade": q.grade,
-                    "difficulty": q.difficulty,
-                    "status": q.status,
-                    "questions_count": len(q.questions),
-                    "created_at": str(q.id),  # временно, пока нет поля created_at
-                }
-                for q in quizzes
-            ]
-        }
 
-# Генерация викторины (с сохранением в БД)
+# ============================================================
+# 1. Генерация викторины (с сохранением в БД)
+# ============================================================
 @router.post("/generate-from-materials")
 async def generate_quiz_from_materials(
     subject: str = Form(...),
@@ -75,8 +57,9 @@ async def generate_quiz_from_materials(
     question_types: list[QuestionType] = Form(...),
     difficulty: DifficultyLevel = Form(...),
     source_text: str | None = Form(None),
+    auto_fix: bool = Form(True),
     file: UploadFile | None = File(None),
-    image: UploadFile | None = File(None),
+    image: UploadFile | None = File(None)
 ):
     logger.info(
         f"START /quiz/generate-from-materials | subject={subject} | grade={grade} | "
@@ -94,7 +77,7 @@ async def generate_quiz_from_materials(
     parsed_question_types = [item.value for item in question_types]
     all_fragments: list[SourceFragment] = []
 
-    # обработка текста
+    # --- Обработка текста ---
     if cleaned_source_text:
         all_fragments.append(
             SourceFragment(
@@ -105,7 +88,7 @@ async def generate_quiz_from_materials(
             )
         )
 
-    # обработка файла
+    # --- Обработка файла ---
     if file is not None:
         file_content = await file.read()
         if not file_content:
@@ -130,7 +113,7 @@ async def generate_quiz_from_materials(
 
         all_fragments.extend(file_fragments)
 
-    # обработка изображения
+    # --- Обработка изображения ---
     if image is not None:
         image_content = await image.read()
         if not image_content:
@@ -147,12 +130,12 @@ async def generate_quiz_from_materials(
                 )
             )
 
-    # объединение фрагментов
+    # --- Объединение фрагментов ---
     merged_fragments = material_service.merge_fragments(None, all_fragments)
     if not merged_fragments:
         raise HTTPException(status_code=400, detail="Не удалось извлечь текст из источников.")
 
-    # генерация через GigaChat
+    # --- Генерация через GigaChat ---
     result = quiz_service.generate_quiz_from_fragments(
         subject=subject,
         grade=grade,
@@ -163,7 +146,24 @@ async def generate_quiz_from_materials(
         fragments=merged_fragments
     )
 
-    # сохранение в БД
+    result, validation_before, validation_after = quiz_validation_service.validate_and_fix(
+        quiz=result,
+        fragments=merged_fragments,
+        subject=subject,
+        grade=grade,
+        topic=topic,
+        difficulty=difficulty.value,
+        auto_fix=auto_fix,
+    )
+    was_fixed = validation_after is not None
+
+    logger.info(
+        f"VALIDATION_FINAL | was_fixed={was_fixed} | "
+        f"score_before={validation_before.overall_score} | "
+        f"score_after={validation_after.overall_score if validation_after else 'N/A'}"
+    )
+
+    # --- Сохранение в БД ---
     with get_db_session() as session:
         quiz = Quiz(
             title=result.quiz_title,
@@ -175,7 +175,7 @@ async def generate_quiz_from_materials(
         session.add(quiz)
         session.flush()  # получаем quiz.id внутри сессии
 
-        # сохраняем id
+        # Сохраняем ID сразу, пока мы внутри сессии
         saved_quiz_id = quiz.id
 
         for idx, q in enumerate(result.questions):
@@ -196,7 +196,7 @@ async def generate_quiz_from_materials(
 
         logger.info(f"SAVED TO DB | quiz_id={saved_quiz_id} | questions_count={len(result.questions)}")
 
-    # возвращаем ответ, используя сохранённый id
+    # Возвращаем ответ, используя сохранённый ID
     return {
         "quiz_id": saved_quiz_id,
         "title": result.quiz_title,
@@ -214,10 +214,17 @@ async def generate_quiz_from_materials(
             }
             for q in result.questions
         ],
+        "validation": {
+            "was_fixed": was_fixed,
+            "before_fix": validation_before.model_dump(),
+            "after_fix": validation_after.model_dump() if validation_after else None,
+        },
     }
 
 
-# экспорт викторины в презентацию / PDF
+# ============================================================
+# 2. Экспорт викторины в презентацию / PDF
+# ============================================================
 @router.get("/{quiz_id}/export")
 def export_quiz_route(
     quiz_id: str,
@@ -237,7 +244,9 @@ def export_quiz_route(
     )
 
 
-# получение викторины по ID (для редактирования)
+# ============================================================
+# 3. Получение викторины по ID (для редактирования)
+# ============================================================
 @router.get("/{quiz_id}")
 def get_quiz(quiz_id: str):
     with get_db_session() as session:
@@ -279,7 +288,9 @@ def get_quiz(quiz_id: str):
         }
 
 
-# сохранение отредактированной викторины
+# ============================================================
+# 3. Сохранение отредактированной викторины
+# ============================================================
 class UpdateQuizRequest(BaseModel):
     title: str | None = None
     difficulty: str | None = None
@@ -287,16 +298,6 @@ class UpdateQuizRequest(BaseModel):
     question_time_seconds: int | None = None
     max_attempts: int | None = None
     status: str | None = None
-
-
-class CreateQuestionRequest(BaseModel):
-    question_text: str
-    question_type: str
-    answers: list | None = None
-    correct_answers: list | None = None
-    explanation: str | None = None
-    source_fragment: str | None = None
-    points: int = 1
 
 
 class UpdateQuestionRequest(BaseModel):
@@ -368,60 +369,10 @@ def update_question(quiz_id: str, question_id: str, data: UpdateQuestionRequest)
     return {"ok": True, "question_id": question_id}
 
 
-@router.post("/{quiz_id}/questions")
-def add_question(quiz_id: str, data: CreateQuestionRequest):
-    with get_db_session() as session:
-        quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
-        if not quiz:
-            raise HTTPException(status_code=404, detail="Викторина не найдена")
-        
-        # Определяем следующий порядковый номер
-        max_order = session.query(Question).filter(
-            Question.quiz_id == quiz_id
-        ).count()
-        
-        question = Question(
-            quiz_id=quiz_id,
-            question_text=data.question_text,
-            question_type=data.question_type,
-            answers=data.answers or [],
-            correct_answers=data.correct_answers or [],
-            explanation=data.explanation or "",
-            source_fragment=data.source_fragment or "",
-            points=data.points,
-            order_idx=max_order,
-        )
-        session.add(question)
-        session.flush()
-        saved_question_id = question.id
-        saved_order_idx = question.order_idx
-        session.commit()
-    
-    return {
-        "ok": True,
-        "question_id": saved_question_id,
-        "order_idx": saved_order_idx
-    }
+# ============================================================
+# 4. Роуты для ученика
+# ============================================================
 
-@router.delete("/{quiz_id}/questions/{question_id}")
-def delete_question(quiz_id: str, question_id: str):
-    """Удаляет один вопрос из викторины (со страницы редактирования)"""
-    with get_db_session() as session:
-        question = session.query(Question).filter(
-            Question.id == question_id,
-            Question.quiz_id == quiz_id
-        ).first()
-        
-        if not question:
-            raise HTTPException(status_code=404, detail="Вопрос не найден")
-        
-        session.delete(question)
-        session.commit()
-    
-    return {"ok": True, "deleted_question_id": question_id}
-
-
-# роуты для ученика
 class StartQuizRequest(BaseModel):
     student_name: str
 
@@ -471,7 +422,9 @@ def finish_quiz_route(attempt_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# результаты для учителя
+# ============================================================
+# 5. Результаты для учителя
+# ============================================================
 @router.get("/{quiz_id}/results")
 def get_results_route(quiz_id: str):
     results = get_quiz_results(quiz_id)
