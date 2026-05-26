@@ -6,6 +6,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
+from app.db.models import Quiz
 from app.db.database import get_db_session
 from app.services.attempts_service import get_quiz_results
 from app.services.pdf_common import format_duration_seconds, safe_filename

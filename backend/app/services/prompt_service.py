@@ -335,6 +335,11 @@ def build_quiz_fix_prompt(
              for iss in item["issues"]]
         )
         problems_block += f"\n=== Вопрос #{idx} ===\nТекущая версия:\n{q_json}\n\nПроблемы:\n{issues_text}\n"
+    
+    if fragments:
+        fragment_id_example = '"string"'
+    else:
+        fragment_id_example = "null"
 
     return f"""
 Ты — методист и автор школьных викторин. Тебе дана викторина с проблемными вопросами и список этих проблем.
@@ -378,7 +383,7 @@ def build_quiz_fix_prompt(
         "correct_answers": ["string"],
         "explanation": "string",
         "difficulty": "{difficulty}",
-        "source_fragment_id": {"\"string\"" if fragments else "null"}
+        "source_fragment_id": {fragment_id_example}
       }}
     }}
   ]
