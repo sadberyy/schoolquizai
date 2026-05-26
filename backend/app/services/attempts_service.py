@@ -133,7 +133,7 @@ def submit_answer(attempt_id: str, question_id: str, answer) -> dict:
         }
 
 
-def finish_quiz(attempt_id: str) -> dict:
+def finish_quiz(attempt_id: str, duration_seconds: int | None = None) -> dict:
     """
     Завершает попытку и возвращает финальный результат.
     """
@@ -142,7 +142,10 @@ def finish_quiz(attempt_id: str) -> dict:
         if result is None:
             raise ValueError("Попытка не найдена")
 
-        result.duration_seconds = 0  # TODO: передавать реальное время с фронтенда
+        if duration_seconds is not None:
+            result.duration_seconds = max(0, int(duration_seconds))
+        elif result.duration_seconds is None:
+            result.duration_seconds = 0
 
         session.commit()
 
@@ -152,6 +155,7 @@ def finish_quiz(attempt_id: str) -> dict:
             "score": result.score,
             "max_score": result.max_score,
             "attempt_number": result.attempt_number,
+            "duration_seconds": result.duration_seconds,
         }
 
 

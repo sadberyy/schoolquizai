@@ -505,10 +505,15 @@ def submit_answer_route(attempt_id: str, data: SubmitAnswerRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+class FinishQuizRequest(BaseModel):
+    duration_seconds: int | None = None
+
+
 @router.post("/attempt/{attempt_id}/finish")
-def finish_quiz_route(attempt_id: str):
+def finish_quiz_route(attempt_id: str, data: FinishQuizRequest | None = None):
     try:
-        result = finish_quiz(attempt_id)
+        duration = data.duration_seconds if data else None
+        result = finish_quiz(attempt_id, duration_seconds=duration)
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
+import { API_BASE_URL } from "@/lib/api"
 
 const MOCK_EMAIL = "teacher@example.com"
 const MOCK_PASSWORD = "123456"
@@ -84,6 +85,10 @@ export default function Dashboard({
   const [quizzes, setQuizzes] = useState<DashboardQuiz[]>(
     quizzesProp ?? MOCK_QUIZZES
   )
+  const [quizzesLoading, setQuizzesLoading] = useState(false)
+  const [quizzesError, setQuizzesError] = useState("")
+  const [deleteError, setDeleteError] = useState("")
+  const [isDeletingQuizId, setIsDeletingQuizId] = useState<string | null>(null)
 
   const [loginEmail, setLoginEmail] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
@@ -101,8 +106,42 @@ export default function Dashboard({
   const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
-    if (quizzesProp) setQuizzes(quizzesProp)
-  }, [quizzesProp])
+    if (!user) return
+
+    let ignore = false
+
+    async function loadQuizzes() {
+      setQuizzesLoading(true)
+      setQuizzesError("")
+      setDeleteError("")
+      try {
+        const response = await fetch(`${API_BASE_URL}/quiz/list`)
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}))
+          throw new Error(
+            (errBody as { detail?: string }).detail ??
+              `Ошибка загрузки викторин: ${response.status}`
+          )
+        }
+        const data = (await response.json()) as { quizzes?: DashboardQuiz[] }
+        if (!ignore) setQuizzes(data.quizzes ?? [])
+      } catch (err) {
+        if (ignore) return
+        setQuizzesError(
+          err instanceof Error ? err.message : "Не удалось загрузить викторины"
+        )
+        // Оставляем текущие данные (возможно, это mock), но показываем ошибку.
+      } finally {
+        if (!ignore) setQuizzesLoading(false)
+      }
+    }
+
+    void loadQuizzes()
+
+    return () => {
+      ignore = true
+    }
+  }, [user])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -177,9 +216,31 @@ export default function Dashboard({
     onLogout()
   }
 
-  const handleDeleteQuiz = (quizId: string) => {
-    setQuizzes((prev) => prev.filter((q) => q.id !== quizId))
-    onDeleteQuiz(quizId)
+  const handleDeleteQuiz = async (quizId: string) => {
+    setDeleteError("")
+    setIsDeletingQuizId(quizId)
+    try {
+      const response = await fetch(`${API_BASE_URL}/quiz/${quizId}`, {
+        method: "DELETE",
+      })
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}))
+        throw new Error(
+          (errBody as { detail?: string }).detail ??
+            `Ошибка удаления: ${response.status}`
+        )
+      }
+
+      setQuizzes((prev) => prev.filter((q) => q.id !== quizId))
+      onDeleteQuiz(quizId)
+    } catch (err) {
+      setDeleteError(
+        err instanceof Error ? err.message : "Не удалось удалить викторину"
+      )
+    } finally {
+      setIsDeletingQuizId(null)
+    }
   }
 
   if (!user) {
@@ -346,6 +407,10 @@ export default function Dashboard({
         </Button>
       </div>
 
+      {deleteError && (
+        <p className="mb-4 text-sm text-destructive">{deleteError}</p>
+      )}
+
       {quizzes.length === 0 ? (
         <Card className={cn("py-12", CARD_CLASS)}>
           <CardContent className="flex flex-col items-center gap-3 text-center">
@@ -396,6 +461,7 @@ export default function Dashboard({
                     className="text-muted-foreground hover:text-destructive"
                     onClick={() => handleDeleteQuiz(quiz.id)}
                     aria-label="Удалить викторину"
+                    disabled={isDeletingQuizId === quiz.id}
                   >
                     <Trash2 className="size-4" />
                   </Button>
@@ -404,6 +470,13 @@ export default function Dashboard({
             </Card>
           ))}
         </div>
+      )}
+
+      {quizzesLoading && (
+        <p className="mt-4 text-sm text-muted-foreground">Загрузка...</p>
+      )}
+      {quizzesError && (
+        <p className="mt-2 text-sm text-destructive">{quizzesError}</p>
       )}
     </div>
   )

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { Plus, Trash2 } from "lucide-react"
 
@@ -148,12 +148,19 @@ function normalizeQuestion(question: QuizQuestion): QuizQuestion {
   })) ?? createDefaultOptions(type)
 
   if (type === "trueFalse") {
-    options = createTrueFalseOptions().map((def, i) => ({
-      ...def,
-      id: options[i]?.id ?? def.id,
-      isCorrect: options[i]?.isCorrect ?? def.isCorrect,
-      points: options[i]?.points ?? def.points,
-    }))
+    const defs = createTrueFalseOptions()
+    options = defs.map((def, i) => {
+      const incoming = options[i]
+      return {
+        ...def,
+        id: incoming?.id ?? def.id,
+        // Важно для интеграции: backend может использовать другие строки
+        // (например "Верно"/"Неверно"), поэтому сохраняем text из входных данных.
+        text: incoming?.text ?? def.text,
+        isCorrect: incoming?.isCorrect ?? def.isCorrect,
+        points: incoming?.points ?? def.points,
+      }
+    })
   }
 
   if (type === "single" && !options.some((o) => o.isCorrect) && options.length > 0) {
@@ -206,6 +213,169 @@ function buildQuizPayload(state: QuizData): QuizData {
   return { ...state, maxScore }
 }
 
+const DIFFICULTY_API: Record<Difficulty, "easy" | "medium" | "hard"> = {
+  Легко: "easy",
+  Средне: "medium",
+  Сложно: "hard",
+}
+
+function mapDifficultyBackendToFrontend(difficulty: string | null | undefined) {
+  if (difficulty === "easy") return "Легко" as Difficulty
+  if (difficulty === "medium") return "Средне" as Difficulty
+  if (difficulty === "hard") return "Сложно" as Difficulty
+  return "Средне" as Difficulty
+}
+
+function mapDifficultyFrontendToBackend(difficulty: Difficulty) {
+  return DIFFICULTY_API[difficulty]
+}
+
+function mapQuestionTypeBackendToFrontend(type: string): QuestionType {
+  if (type === "single_choice") return "single"
+  if (type === "multiple_choice") return "multiple"
+  if (type === "true_false") return "trueFalse"
+  return "single"
+}
+
+function mapQuestionTypeFrontendToBackend(type: QuestionType) {
+  if (type === "single") return "single_choice"
+  if (type === "multiple") return "multiple_choice"
+  return "true_false"
+}
+
+function computeQuestionPointsFromFrontend(question: QuizQuestion): number {
+  const correctOptions = question.options.filter((o) => o.isCorrect)
+  if (correctOptions.length === 0) return 0
+
+  if (question.type === "multiple") {
+    return correctOptions.reduce(
+      (sum, o) => sum + (Number(o.points) || 0),
+      0
+    )
+  }
+
+  if (correctOptions.length === 1) {
+    return Number(correctOptions[0].points) || 0
+  }
+
+  // На UI для single/trueFalse обычно один correct, но если это нарушено —
+  // backend присваивает один Question.points всем правильным ответам.
+  // Берём максимальный points, чтобы не занизить ожидаемую оценку.
+  return Math.max(...correctOptions.map((o) => Number(o.points) || 0), 0)
+}
+
+function buildOptionsFromBackendAnswers(params: {
+  answers: unknown
+  correctAnswers: unknown
+  questionType: QuestionType
+  questionPoints: number
+}): QuizAnswerOption[] {
+  const answerList = Array.isArray(params.answers)
+    ? params.answers.filter((x) => typeof x === "string")
+    : []
+  const correctList = Array.isArray(params.correctAnswers)
+    ? params.correctAnswers.filter((x) => typeof x === "string")
+    : []
+  const correctSet = new Set(correctList)
+
+  if (params.questionType === "multiple") {
+    const correctCount = answerList.filter((a) => correctSet.has(a)).length
+    if (correctCount <= 0) {
+      return answerList.map((text, idx) => ({
+        id: `opt-${idx}-${text}`,
+        text,
+        isCorrect: false,
+        points: 0,
+      }))
+    }
+
+    const base = Math.floor(params.questionPoints / correctCount)
+    let remainder = params.questionPoints - base * correctCount
+
+    return answerList.map((text, idx) => {
+      const isCorrect = correctSet.has(text)
+      const points =
+        isCorrect
+          ? base + (remainder > 0 ? 1 : 0)
+          : 0
+
+      if (isCorrect && remainder > 0) remainder -= 1
+
+      return {
+        id: `opt-${idx}-${text}`,
+        text,
+        isCorrect,
+        points,
+      }
+    })
+  }
+
+  return answerList.map((text, idx) => ({
+    id: `opt-${idx}-${text}`,
+    text,
+    isCorrect: correctSet.has(text),
+    points: correctSet.has(text) ? params.questionPoints : 0,
+  }))
+}
+
+function backendQuizToQuizData(backendQuiz: any): QuizData {
+  const mappedDifficulty = mapDifficultyBackendToFrontend(backendQuiz.difficulty)
+
+  const questions: QuizQuestion[] = (backendQuiz.questions ?? []).map(
+    (q: any) => {
+      const type = mapQuestionTypeBackendToFrontend(q.question_type)
+      const questionPoints = Number(q.points) || 0
+      return {
+        id: String(q.id),
+        type,
+        text: q.question_text ?? "",
+        source: q.source_fragment ?? "",
+        explanation: q.explanation ?? "",
+        options: buildOptionsFromBackendAnswers({
+          answers: q.answers,
+          correctAnswers: q.correct_answers,
+          questionType: type,
+          questionPoints,
+        }),
+      }
+    }
+  )
+
+  return {
+    id: String(backendQuiz.quiz_id),
+    title: backendQuiz.title ?? "",
+    difficulty: mappedDifficulty,
+    attempts: Math.max(1, Number(backendQuiz.max_attempts) || 1),
+    timerPerQuestion: Math.max(0, Number(backendQuiz.question_time_seconds) || 0),
+    totalTimer: Math.max(0, Number(backendQuiz.full_time_seconds) || 0) / 60,
+    maxScore: 0,
+    questions,
+  }
+}
+
+function frontendQuestionToBackendCreatePayload(question: QuizQuestion) {
+  const correctOptions = question.options.filter((o) => o.isCorrect)
+  return {
+    question_text: question.text,
+    question_type: mapQuestionTypeFrontendToBackend(question.type),
+    answers: question.options.map((o) => o.text),
+    correct_answers: correctOptions.map((o) => o.text),
+    explanation: question.explanation || "",
+    source_fragment: question.source || "",
+    points: computeQuestionPointsFromFrontend(question),
+  }
+}
+
+function frontendQuestionToBackendUpdatePayload(
+  question: QuizQuestion,
+  orderIdx: number
+) {
+  return {
+    ...frontendQuestionToBackendCreatePayload(question),
+    order_idx: orderIdx,
+  }
+}
+
 export default function EditQuiz({
   quizData,
   onSave,
@@ -213,15 +383,72 @@ export default function EditQuiz({
 }: EditQuizProps) {
   const { quizId: routeQuizId } = useParams<{ quizId: string }>()
 
+  const resolvedQuizId = routeQuizId
+
   const [quiz, setQuiz] = useState<QuizData>(() =>
     normalizeQuizData(quizData ?? MOCK_QUIZ_DATA)
   )
 
-  const resolvedQuizId = routeQuizId ?? quiz.id ?? "mock-001"
+  const backendQuestionIdsRef = useRef<Set<string>>(new Set())
+
+  const [isLoadingQuiz, setIsLoadingQuiz] = useState(!quizData)
+  const [loadError, setLoadError] = useState("")
+  const [isSavingQuiz, setIsSavingQuiz] = useState(false)
+  const [saveError, setSaveError] = useState("")
 
   useEffect(() => {
-    setQuiz(normalizeQuizData(quizData ?? MOCK_QUIZ_DATA))
+    if (!quizData) return
+    setQuiz(normalizeQuizData(quizData))
   }, [quizData])
+
+  useEffect(() => {
+    if (!resolvedQuizId) return
+    if (quizData) return
+
+    let ignore = false
+
+    async function loadQuiz() {
+      setIsLoadingQuiz(true)
+      setLoadError("")
+      setSaveError("")
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`)
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}))
+          throw new Error(
+            (errBody as { detail?: string }).detail ??
+              `Ошибка загрузки викторины: ${response.status}`
+          )
+        }
+
+        const data = (await response.json()) as any
+        const mapped = backendQuizToQuizData(data)
+        const normalized = normalizeQuizData(mapped)
+
+        if (ignore) return
+        setQuiz(normalized)
+        backendQuestionIdsRef.current = new Set(
+          normalized.questions.map((q) => q.id)
+        )
+      } catch (err) {
+        if (ignore) return
+        setLoadError(
+          err instanceof Error
+            ? err.message
+            : "Не удалось загрузить викторину"
+        )
+      } finally {
+        if (!ignore) setIsLoadingQuiz(false)
+      }
+    }
+
+    void loadQuiz()
+
+    return () => {
+      ignore = true
+    }
+  }, [resolvedQuizId, quizData])
 
   const maxScore = useMemo(
     () => getTotalMaxScore(quiz.questions),
@@ -377,19 +604,177 @@ export default function EditQuiz({
     [quiz]
   )
 
+  const syncQuizWithBackend = async (status: "draft" | "published") => {
+    if (!resolvedQuizId) return
+
+    setIsSavingQuiz(true)
+    setSaveError("")
+
+    try {
+      const updateQuizPayload = {
+        title: quiz.title,
+        difficulty: mapDifficultyFrontendToBackend(quiz.difficulty),
+        full_time_seconds: Math.round(Number(quiz.totalTimer) * 60),
+        question_time_seconds: Math.round(Number(quiz.timerPerQuestion)),
+        max_attempts: Math.round(Number(quiz.attempts)),
+        status,
+      }
+
+      const updateQuizRes = await fetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updateQuizPayload),
+      })
+
+      if (!updateQuizRes.ok) {
+        const errBody = await updateQuizRes.json().catch(() => ({}))
+        throw new Error(
+          (errBody as { detail?: string }).detail ??
+            `Ошибка сохранения настроек: ${updateQuizRes.status}`
+        )
+      }
+
+      const originalQuestionIds = backendQuestionIdsRef.current
+      const currentQuestionIds = new Set(quiz.questions.map((q) => q.id))
+
+      const deletedQuestionIds = [...originalQuestionIds].filter(
+        (id) => !currentQuestionIds.has(id)
+      )
+
+      for (const questionId of deletedQuestionIds) {
+        const deleteRes = await fetch(
+          `${API_BASE_URL}/quiz/${resolvedQuizId}/questions/${questionId}`,
+          { method: "DELETE" }
+        )
+        if (!deleteRes.ok) {
+          const errBody = await deleteRes.json().catch(() => ({}))
+          throw new Error(
+            (errBody as { detail?: string }).detail ??
+              `Ошибка удаления вопроса: ${deleteRes.status}`
+          )
+        }
+      }
+
+      for (let orderIdx = 0; orderIdx < quiz.questions.length; orderIdx++) {
+        const q = quiz.questions[orderIdx]
+
+        if (originalQuestionIds.has(q.id)) {
+          const updatePayload = frontendQuestionToBackendUpdatePayload(
+            q,
+            orderIdx
+          )
+
+          const putRes = await fetch(
+            `${API_BASE_URL}/quiz/${resolvedQuizId}/questions/${q.id}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(updatePayload),
+            }
+          )
+
+          if (!putRes.ok) {
+            const errBody = await putRes.json().catch(() => ({}))
+            throw new Error(
+              (errBody as { detail?: string }).detail ??
+                `Ошибка обновления вопроса: ${putRes.status}`
+            )
+          }
+        } else {
+          const createPayload = frontendQuestionToBackendCreatePayload(q)
+
+          const postRes = await fetch(
+            `${API_BASE_URL}/quiz/${resolvedQuizId}/questions`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(createPayload),
+            }
+          )
+
+          if (!postRes.ok) {
+            const errBody = await postRes.json().catch(() => ({}))
+            throw new Error(
+              (errBody as { detail?: string }).detail ??
+                `Ошибка добавления вопроса: ${postRes.status}`
+            )
+          }
+
+          const created = (await postRes.json().catch(() => ({}))) as {
+            question_id?: string
+          }
+
+          if (!created.question_id) {
+            throw new Error("Backend не вернул question_id при добавлении")
+          }
+
+          const updatePayload = frontendQuestionToBackendUpdatePayload(
+            q,
+            orderIdx
+          )
+
+          const putRes = await fetch(
+            `${API_BASE_URL}/quiz/${resolvedQuizId}/questions/${created.question_id}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(updatePayload),
+            }
+          )
+
+          if (!putRes.ok) {
+            const errBody = await putRes.json().catch(() => ({}))
+            throw new Error(
+              (errBody as { detail?: string }).detail ??
+                `Ошибка выставления порядка вопроса: ${putRes.status}`
+            )
+          }
+        }
+      }
+
+      // Обновляем состояние после синхронизации (чтобы получить реальные question_id)
+      const refreshedRes = await fetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`)
+      if (!refreshedRes.ok) {
+        const errBody = await refreshedRes.json().catch(() => ({}))
+        throw new Error(
+          (errBody as { detail?: string }).detail ??
+            `Ошибка загрузки после сохранения: ${refreshedRes.status}`
+        )
+      }
+
+      const refreshed = (await refreshedRes.json()) as any
+      const mapped = backendQuizToQuizData(refreshed)
+      const normalized = normalizeQuizData(mapped)
+
+      setQuiz(normalized)
+      backendQuestionIdsRef.current = new Set(
+        normalized.questions.map((qq) => qq.id)
+      )
+
+      onSave?.(getPayload())
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Не удалось сохранить викторину"
+      )
+    } finally {
+      setIsSavingQuiz(false)
+    }
+  }
+
   const handleSave = () => {
-    onSave?.(getPayload())
+    void syncQuizWithBackend("draft")
   }
 
   const handlePublish = async () => {
-    const payload = getPayload()
+    await syncQuizWithBackend("published")
+
     const link = `${STUDENT_QUIZ_BASE_URL}/${resolvedQuizId}`
     try {
       await navigator.clipboard.writeText(link)
     } catch {
       // clipboard may be unavailable
     }
-    onPublish?.(payload)
+    onPublish?.(getPayload())
   }
 
   const handleDownloadPdf = () => {
@@ -416,6 +801,16 @@ export default function EditQuiz({
       <Button asChild variant="ghost" size="sm" className="mb-4 -ml-2">
         <Link to="/">Назад</Link>
       </Button>
+
+      {isLoadingQuiz && (
+        <p className="mb-4 text-sm text-muted-foreground">Загрузка викторины...</p>
+      )}
+      {loadError && (
+        <p className="mb-4 text-sm text-destructive">{loadError}</p>
+      )}
+      {saveError && (
+        <p className="mb-4 text-sm text-destructive">{saveError}</p>
+      )}
 
       <Card className={CARD_CLASS}>
         <CardHeader>
@@ -732,19 +1127,31 @@ export default function EditQuiz({
             type="button"
             className={cn(ACCENT_BUTTON_CLASS)}
             onClick={handleSave}
+            disabled={isLoadingQuiz || isSavingQuiz}
           >
             Сохранить черновик
           </Button>
-          <Button type="button" variant="secondary" onClick={handleDownloadPdf}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleDownloadPdf}
+            disabled={isLoadingQuiz || isSavingQuiz}
+          >
             Скачать PDF
           </Button>
-          <Button type="button" variant="secondary" onClick={handleDownloadPptx}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleDownloadPptx}
+            disabled={isLoadingQuiz || isSavingQuiz}
+          >
             Скачать PPTX
           </Button>
           <Button
             type="button"
             variant="secondary"
             onClick={handlePublish}
+            disabled={isLoadingQuiz || isSavingQuiz}
           >
             Копировать ссылку для учеников
           </Button>

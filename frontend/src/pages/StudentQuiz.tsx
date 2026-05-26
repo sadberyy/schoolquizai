@@ -1,11 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useParams } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { API_BASE_URL } from "@/lib/api"
+import {
+  buildStudentAnswerPayload,
+  mapQuizMetaFromApi,
+  mapStudentQuestionsFromApi,
+  readApiError,
+} from "@/lib/quizApi"
 import { cn } from "@/lib/utils"
-import { getTotalMaxScore, MOCK_QUIZ_DATA } from "@/pages/EditQuiz"
 import type { QuizData, QuizQuestion } from "@/types/quiz"
 
 export type { QuizData } from "@/types/quiz"
@@ -42,50 +49,6 @@ const ACCENT_BUTTON_CLASS =
 const NEXT_BUTTON_CLASS =
   "h-12 border-2 border-quiz-card-border bg-quiz-card-border text-base text-white hover:bg-quiz-card-border/90 sm:h-14 sm:text-lg"
 
-function normalizeQuizData(data: QuizData): QuizData {
-  return {
-    ...data,
-    title: data.title ?? "Викторина",
-    attempts: Math.max(1, Number(data.attempts) || 1),
-    timerPerQuestion: Math.max(0, Number(data.timerPerQuestion) || 0),
-    totalTimer: Math.max(0, Number(data.totalTimer) || 0),
-    questions: data.questions?.length ? data.questions : MOCK_QUIZ_DATA.questions,
-  }
-}
-
-function scoreAnswer(
-  question: QuizQuestion,
-  selectedIds: string[]
-): number {
-  if (selectedIds.length === 0) return 0
-
-  if (question.type === "multiple") {
-    const correctIds = question.options
-      .filter((o) => o.isCorrect)
-      .map((o) => o.id)
-    const allCorrectSelected = correctIds.every((id) =>
-      selectedIds.includes(id)
-    )
-    const noWrongSelected = selectedIds.every((id) =>
-      correctIds.includes(id)
-    )
-    if (
-      allCorrectSelected &&
-      noWrongSelected &&
-      selectedIds.length === correctIds.length
-    ) {
-      return question.options
-        .filter((o) => o.isCorrect)
-        .reduce((sum, o) => sum + o.points, 0)
-    }
-    return 0
-  }
-
-  if (selectedIds.length !== 1) return 0
-  const selected = question.options.find((o) => o.id === selectedIds[0])
-  return selected?.isCorrect ? selected.points : 0
-}
-
 function formatElapsed(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
@@ -102,16 +65,40 @@ export default function StudentQuiz({
   quizData,
   onComplete,
 }: StudentQuizProps) {
-  const quiz = useMemo(
-    () => normalizeQuizData(quizData ?? MOCK_QUIZ_DATA),
-    [quizData]
+  const { quizId: routeQuizId } = useParams<{ quizId: string }>()
+
+  const [quizSettings, setQuizSettings] = useState({
+    title: quizData?.title ?? "Викторина",
+    attempts: quizData?.attempts ?? 1,
+    timerPerQuestion: quizData?.timerPerQuestion ?? 0,
+    totalTimer: quizData?.totalTimer ?? 0,
+  })
+  const [questions, setQuestions] = useState<QuizQuestion[]>(
+    quizData?.questions ?? []
+  )
+  const [maxScore, setMaxScore] = useState(quizData?.maxScore ?? 0)
+
+  const quiz = useMemo<QuizData>(
+    () => ({
+      id: routeQuizId ?? quizData?.id,
+      title: quizSettings.title,
+      difficulty: quizData?.difficulty ?? "Средне",
+      attempts: quizSettings.attempts,
+      timerPerQuestion: quizSettings.timerPerQuestion,
+      totalTimer: quizSettings.totalTimer,
+      maxScore,
+      questions,
+    }),
+    [routeQuizId, quizData, quizSettings, maxScore, questions]
   )
 
-  const maxScore = useMemo(
-    () =>
-      quiz.maxScore > 0 ? quiz.maxScore : getTotalMaxScore(quiz.questions),
-    [quiz]
-  )
+  const [isLoadingMeta, setIsLoadingMeta] = useState(Boolean(routeQuizId))
+  const [loadMetaError, setLoadMetaError] = useState("")
+  const [startError, setStartError] = useState("")
+  const [apiError, setApiError] = useState("")
+  const [isStarting, setIsStarting] = useState(false)
+  const [attemptId, setAttemptId] = useState<string | null>(null)
+  const attemptIdRef = useRef<string | null>(null)
 
   const [stage, setStage] = useState<Stage>("intro")
   const [participantName, setParticipantName] = useState("")
@@ -128,6 +115,7 @@ export default function StudentQuiz({
   const hasSubmittedRef = useRef(false)
   const completeSentForAttempt = useRef(0)
   const questionIndexRef = useRef(questionIndex)
+  const elapsedSecondsRef = useRef(0)
   const questionTimeoutHandledRef = useRef(-1)
   const onQuestionTimeExpiredRef = useRef<() => void>(() => {})
 
@@ -141,30 +129,164 @@ export default function StudentQuiz({
     questionIndexRef.current = questionIndex
   }, [questionIndex])
 
-  const recordAnswer = useCallback(
-    (question: QuizQuestion, optionIds: string[]) => {
-      const points = scoreAnswer(question, optionIds)
-      setScore((s) => s + points)
+  useEffect(() => {
+    elapsedSecondsRef.current = elapsedSeconds
+  }, [elapsedSeconds])
+
+  useEffect(() => {
+    attemptIdRef.current = attemptId
+  }, [attemptId])
+
+  useEffect(() => {
+    if (!routeQuizId || quizData) {
+      setIsLoadingMeta(false)
+      return
+    }
+
+    let ignore = false
+
+    async function loadMeta() {
+      setIsLoadingMeta(true)
+      setLoadMetaError("")
+      try {
+        const response = await fetch(`${API_BASE_URL}/quiz/${routeQuizId}`)
+        if (!response.ok) {
+          throw new Error(
+            await readApiError(response, "Не удалось загрузить викторину")
+          )
+        }
+        const data = (await response.json()) as {
+          quiz_id: string
+          title?: string
+          max_attempts?: number
+          question_time_seconds?: number
+          full_time_seconds?: number
+        }
+        if (ignore) return
+        setQuizSettings(mapQuizMetaFromApi(data))
+      } catch (err) {
+        if (ignore) return
+        setLoadMetaError(
+          err instanceof Error ? err.message : "Не удалось загрузить викторину"
+        )
+      } finally {
+        if (!ignore) setIsLoadingMeta(false)
+      }
+    }
+
+    void loadMeta()
+
+    return () => {
+      ignore = true
+    }
+  }, [routeQuizId, quizData])
+
+  const submitAnswerToBackend = useCallback(
+    async (question: QuizQuestion, optionIds: string[]) => {
+      const currentAttemptId = attemptIdRef.current
+      if (!currentAttemptId) {
+        throw new Error("Попытка не начата")
+      }
+
+      const answer = buildStudentAnswerPayload(question, optionIds)
+      const response = await fetch(
+        `${API_BASE_URL}/quiz/attempt/${currentAttemptId}/answer`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question_id: question.id,
+            answer,
+          }),
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error(
+          await readApiError(response, "Не удалось отправить ответ")
+        )
+      }
+
+      const data = (await response.json()) as {
+        points_received?: number
+        total_score?: number
+      }
+
+      const pointsReceived = Number(data.points_received) || 0
+      const totalScore = Number(data.total_score) || 0
+
+      setScore(totalScore)
       setAnswers((prev) => [
         ...prev,
         {
           questionId: question.id,
           selectedOptionIds: optionIds,
-          pointsEarned: points,
+          pointsEarned: pointsReceived,
         },
       ])
     },
     []
   )
 
-  const finishQuiz = useCallback(() => {
-    const q = quiz.questions[questionIndexRef.current]
-    if (q && !hasSubmittedRef.current) {
-      recordAnswer(q, [])
-      hasSubmittedRef.current = true
+  const finishQuiz = useCallback(async () => {
+    setApiError("")
+    const q = questions[questionIndexRef.current]
+
+    try {
+      if (q && !hasSubmittedRef.current) {
+        await submitAnswerToBackend(q, [])
+        hasSubmittedRef.current = true
+      }
+
+      const currentAttemptId = attemptIdRef.current
+      if (currentAttemptId) {
+        const durationSeconds = Math.max(
+          0,
+          Math.round(elapsedSecondsRef.current)
+        )
+        const response = await fetch(
+          `${API_BASE_URL}/quiz/attempt/${currentAttemptId}/finish`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ duration_seconds: durationSeconds }),
+          }
+        )
+
+        if (!response.ok) {
+          throw new Error(
+            await readApiError(response, "Не удалось завершить викторину")
+          )
+        }
+
+        const data = (await response.json()) as {
+          score?: number
+          max_score?: number
+          attempt_number?: number
+          duration_seconds?: number
+        }
+
+        if (data.score !== undefined) setScore(Number(data.score) || 0)
+        if (data.max_score !== undefined) {
+          setMaxScore(Number(data.max_score) || maxScore)
+        }
+        if (data.attempt_number !== undefined) {
+          setAttemptNumber(Number(data.attempt_number) || 1)
+        }
+        if (data.duration_seconds !== undefined) {
+          const savedDuration = Math.max(0, Number(data.duration_seconds) || 0)
+          setElapsedSeconds(savedDuration)
+          elapsedSecondsRef.current = savedDuration
+        }
+      }
+
+      setStage("result")
+    } catch (err) {
+      setApiError(
+        err instanceof Error ? err.message : "Не удалось завершить викторину"
+      )
     }
-    setStage("result")
-  }, [quiz.questions, recordAnswer])
+  }, [questions, submitAnswerToBackend, maxScore, attemptNumber])
 
   const buildResult = useCallback(
     (): QuizResultData => {
@@ -218,25 +340,31 @@ export default function StudentQuiz({
 
     if (hasSubmittedRef.current) return
 
-    const question = quiz.questions[index]
+    const question = questions[index]
     if (!question) {
-      finishQuiz()
+      void finishQuiz()
       return
     }
 
-    recordAnswer(question, [])
+    void submitAnswerToBackend(question, [])
+      .then(() => {
+        if (index >= questions.length - 1) {
+          void finishQuiz()
+          return
+        }
 
-    if (index >= quiz.questions.length - 1) {
-      finishQuiz()
-      return
-    }
-
-    questionTimeoutHandledRef.current = -1
-    setQuestionIndex(index + 1)
-    setSelectedIds([])
-    setHasSubmitted(false)
-    hasSubmittedRef.current = false
-  }, [quiz.questions, recordAnswer, finishQuiz])
+        questionTimeoutHandledRef.current = -1
+        setQuestionIndex(index + 1)
+        setSelectedIds([])
+        setHasSubmitted(false)
+        hasSubmittedRef.current = false
+      })
+      .catch((err) => {
+        setApiError(
+          err instanceof Error ? err.message : "Не удалось отправить ответ"
+        )
+      })
+  }, [questions, submitAnswerToBackend, finishQuiz])
 
   useEffect(() => {
     onQuestionTimeExpiredRef.current = onQuestionTimeExpired
@@ -250,21 +378,85 @@ export default function StudentQuiz({
     setScore(0)
     setAnswers([])
     setElapsedSeconds(0)
+    elapsedSecondsRef.current = 0
     setQuestionTimeLeft(quiz.timerPerQuestion)
     setTotalTimeLeft(quiz.totalTimer * 60)
     completeSentForAttempt.current = 0
     questionTimeoutHandledRef.current = -1
   }, [quiz.timerPerQuestion, quiz.totalTimer])
 
+  const beginAttempt = async () => {
+    if (!routeQuizId) {
+      setStartError("Не указан идентификатор викторины")
+      return
+    }
+
+    setIsStarting(true)
+    setStartError("")
+    setApiError("")
+
+    try {
+      const startResponse = await fetch(
+        `${API_BASE_URL}/quiz/${routeQuizId}/start`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ student_name: participantName.trim() }),
+        }
+      )
+
+      if (!startResponse.ok) {
+        throw new Error(
+          await readApiError(startResponse, "Не удалось начать викторину")
+        )
+      }
+
+      const startData = (await startResponse.json()) as { attempt_id?: string }
+      if (!startData.attempt_id) {
+        throw new Error("Backend не вернул attempt_id")
+      }
+
+      setAttemptId(startData.attempt_id)
+      attemptIdRef.current = startData.attempt_id
+
+      const questionsResponse = await fetch(
+        `${API_BASE_URL}/quiz/${routeQuizId}/questions`
+      )
+
+      if (!questionsResponse.ok) {
+        throw new Error(
+          await readApiError(questionsResponse, "Не удалось загрузить вопросы")
+        )
+      }
+
+      const questionsData = (await questionsResponse.json()) as {
+        questions?: import("@/lib/quizApi").ApiStudentQuestion[]
+      }
+
+      const mapped = mapStudentQuestionsFromApi(questionsData.questions ?? [])
+      if (mapped.questions.length === 0) {
+        throw new Error("Викторина не содержит вопросов")
+      }
+
+      setQuestions(mapped.questions)
+      setMaxScore(mapped.maxScore)
+      resetQuizSession()
+      setStage("quiz")
+    } catch (err) {
+      setStartError(
+        err instanceof Error ? err.message : "Не удалось начать викторину"
+      )
+    } finally {
+      setIsStarting(false)
+    }
+  }
+
   const handleStart = () => {
-    resetQuizSession()
-    setStage("quiz")
+    void beginAttempt()
   }
 
   const handleRetry = () => {
-    setAttemptNumber((n) => n + 1)
-    resetQuizSession()
-    setStage("quiz")
+    void beginAttempt()
   }
 
   const toggleOption = (optionId: string) => {
@@ -284,9 +476,17 @@ export default function StudentQuiz({
 
   const handleSubmit = () => {
     if (hasSubmitted || selectedIds.length === 0 || !currentQuestion) return
-    recordAnswer(currentQuestion, [...selectedIds])
-    setHasSubmitted(true)
-    hasSubmittedRef.current = true
+
+    void submitAnswerToBackend(currentQuestion, [...selectedIds])
+      .then(() => {
+        setHasSubmitted(true)
+        hasSubmittedRef.current = true
+      })
+      .catch((err) => {
+        setApiError(
+          err instanceof Error ? err.message : "Не удалось отправить ответ"
+        )
+      })
   }
 
   const handleNext = () => {
@@ -324,7 +524,7 @@ export default function StudentQuiz({
       setTotalTimeLeft((prev) => {
         if (prev <= 1) {
           window.clearInterval(id)
-          finishQuiz()
+          void finishQuiz()
           return 0
         }
         return prev - 1
@@ -360,9 +560,17 @@ export default function StudentQuiz({
       totalQuestions > 0 &&
       questionIndex >= totalQuestions
     ) {
-      finishQuiz()
+      void finishQuiz()
     }
   }, [stage, questionIndex, totalQuestions, finishQuiz])
+
+  if (!routeQuizId && !quizData) {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-4 py-8">
+        <p className="text-destructive">Некорректная ссылка на викторину</p>
+      </div>
+    )
+  }
 
   if (stage === "intro") {
     return (
@@ -374,6 +582,12 @@ export default function StudentQuiz({
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
+            {isLoadingMeta && (
+              <p className="text-sm text-muted-foreground">Загрузка...</p>
+            )}
+            {loadMetaError && (
+              <p className="text-sm text-destructive">{loadMetaError}</p>
+            )}
             <div className="flex flex-col gap-2">
               <Label htmlFor="participantName">Имя и фамилия / Команда</Label>
               <Input
@@ -382,16 +596,20 @@ export default function StudentQuiz({
                 onChange={(e) => setParticipantName(e.target.value)}
                 placeholder="Введите имя и фамилию или название команды"
                 autoComplete="name"
+                disabled={isLoadingMeta}
                 required
               />
             </div>
+            {startError && (
+              <p className="text-sm text-destructive">{startError}</p>
+            )}
             <Button
               type="button"
               className={cn("mt-2 w-full", ACCENT_BUTTON_CLASS)}
-              disabled={!canStart}
+              disabled={!canStart || isStarting || isLoadingMeta}
               onClick={handleStart}
             >
-              Начать викторину
+              {isStarting ? "Запуск…" : "Начать викторину"}
             </Button>
           </CardContent>
         </Card>
@@ -425,14 +643,19 @@ export default function StudentQuiz({
               Попытка {attemptNumber} из {quiz.attempts}
             </p>
 
+            {apiError && (
+              <p className="text-sm text-destructive">{apiError}</p>
+            )}
+
             <div className="mt-4 flex flex-col gap-3">
               {hasAttemptsLeft && (
                 <Button
                   type="button"
                   className={cn("w-full", ACCENT_BUTTON_CLASS)}
+                  disabled={isStarting}
                   onClick={handleRetry}
                 >
-                  Пройти ещё раз
+                  {isStarting ? "Запуск…" : "Пройти ещё раз"}
                 </Button>
               )}
               <Button
@@ -462,6 +685,9 @@ export default function StudentQuiz({
 
   return (
     <div className="mx-auto min-h-screen max-w-3xl px-4 py-6 sm:px-8">
+      {apiError && (
+        <p className="mb-4 text-sm text-destructive">{apiError}</p>
+      )}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         {quiz.totalTimer > 0 && (
           <div className="rounded-lg border-2 border-quiz-card-border bg-white/90 px-3 py-1.5 text-sm font-medium sm:text-base">

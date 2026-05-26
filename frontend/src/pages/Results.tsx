@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react"
-import { Link } from "react-router-dom"
+import { useEffect, useMemo, useState } from "react"
+import { Link, useParams } from "react-router-dom"
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { API_BASE_URL } from "@/lib/api"
+import { mapResultsFromApi, readApiError } from "@/lib/quizApi"
 import { cn } from "@/lib/utils"
-import { getTotalMaxScore, MOCK_QUIZ_DATA } from "@/pages/EditQuiz"
 import type { QuizData } from "@/types/quiz"
 
 export type { QuizData } from "@/types/quiz"
@@ -152,15 +153,90 @@ function SortIcon({
 }
 
 export default function Results({ quizData, results }: ResultsProps) {
-  const quiz = quizData ?? MOCK_QUIZ_DATA
-  const rawResults = results ?? MOCK_RESULTS
-  const maxScore =
-    quiz.maxScore > 0
-      ? quiz.maxScore
-      : rawResults[0]?.maxScore ?? getTotalMaxScore(quiz.questions)
+  const { quizId: routeQuizId } = useParams<{ quizId: string }>()
+
+  const [quizTitle, setQuizTitle] = useState(quizData?.title ?? "Викторина")
+  const [fallbackMaxScore, setFallbackMaxScore] = useState(
+    quizData?.maxScore ?? 0
+  )
+  const [rawResults, setRawResults] = useState<StudentResult[]>(
+    results ?? []
+  )
+  const [isLoading, setIsLoading] = useState(Boolean(routeQuizId && !results))
+  const [loadError, setLoadError] = useState("")
+  const [exportError, setExportError] = useState("")
 
   const [sortKey, setSortKey] = useState<SortKey>("score")
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
+
+  useEffect(() => {
+    if (!routeQuizId || results) return
+
+    let ignore = false
+
+    async function load() {
+      setIsLoading(true)
+      setLoadError("")
+
+      try {
+        const [quizRes, resultsRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/quiz/${routeQuizId}`),
+          fetch(`${API_BASE_URL}/quiz/${routeQuizId}/results`),
+        ])
+
+        if (!quizRes.ok) {
+          throw new Error(
+            await readApiError(quizRes, "Не удалось загрузить викторину")
+          )
+        }
+        if (!resultsRes.ok) {
+          throw new Error(
+            await readApiError(resultsRes, "Не удалось загрузить результаты")
+          )
+        }
+
+        const quizJson = (await quizRes.json()) as {
+          title?: string
+          questions?: { points?: number }[]
+        }
+        const resultsJson = (await resultsRes.json()) as {
+          results?: import("@/lib/quizApi").ApiQuizResultRow[]
+        }
+
+        if (ignore) return
+
+        setQuizTitle(quizJson.title ?? "Викторина")
+
+        const computedMax = (quizJson.questions ?? []).reduce(
+          (sum, q) => sum + (Number(q.points) || 0),
+          0
+        )
+        setFallbackMaxScore(computedMax)
+
+        setRawResults(mapResultsFromApi(resultsJson.results ?? []))
+      } catch (err) {
+        if (ignore) return
+        setLoadError(
+          err instanceof Error ? err.message : "Не удалось загрузить данные"
+        )
+      } finally {
+        if (!ignore) setIsLoading(false)
+      }
+    }
+
+    void load()
+
+    return () => {
+      ignore = true
+    }
+  }, [routeQuizId, results])
+
+  const maxScore = useMemo(() => {
+    const fromResults = rawResults.find((r) => r.maxScore > 0)?.maxScore
+    if (fromResults) return fromResults
+    if (fallbackMaxScore > 0) return fallbackMaxScore
+    return 1
+  }, [rawResults, fallbackMaxScore])
 
   const normalizedResults = useMemo(
     () => normalizeResults(rawResults),
@@ -191,12 +267,21 @@ export default function Results({ quizData, results }: ResultsProps) {
   }
 
   const handleDownloadPdf = () => {
-    console.log("Скачать PDF", {
-      quizTitle: quiz.title,
-      results: sortedResults,
-      averageScore,
-      totalStudents: normalizedResults.length,
+    if (!routeQuizId) {
+      setExportError("Не указан идентификатор викторины")
+      return
+    }
+
+    setExportError("")
+    const params = new URLSearchParams({
+      sort_by: sortKey,
+      sort_dir: sortDirection,
     })
+    window.open(
+      `${API_BASE_URL}/quiz/${routeQuizId}/results/export?${params.toString()}`,
+      "_blank",
+      "noopener,noreferrer"
+    )
   }
 
   const headerButtonClass =
@@ -208,9 +293,19 @@ export default function Results({ quizData, results }: ResultsProps) {
         <Link to="/">Назад</Link>
       </Button>
 
+      {isLoading && (
+        <p className="mb-4 text-sm text-muted-foreground">Загрузка...</p>
+      )}
+      {loadError && (
+        <p className="mb-4 text-sm text-destructive">{loadError}</p>
+      )}
+      {exportError && (
+        <p className="mb-4 text-sm text-destructive">{exportError}</p>
+      )}
+
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold sm:text-3xl">{quiz.title}</h1>
+          <h1 className="text-2xl font-bold sm:text-3xl">{quizTitle}</h1>
           <p className="mt-2 text-lg text-muted-foreground">
             Результаты учеников
           </p>

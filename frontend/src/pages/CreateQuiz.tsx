@@ -76,8 +76,6 @@ const DIFFICULTY_API: Record<(typeof DIFFICULTIES)[number], string> = {
   Сложно: "hard",
 }
 
-const MOCK_QUIZ_ID = "mock-001"
-
 function FormField({
   label,
   htmlFor,
@@ -190,31 +188,25 @@ export default function CreateQuiz() {
         formData.append("image", imageFile)
       }
 
-      let quizId = MOCK_QUIZ_ID
+      const response = await fetch(
+        `${API_BASE_URL}/quiz/generate-from-materials`,
+        { method: "POST", body: formData }
+      )
 
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/quiz/generate-from-materials`,
-          { method: "POST", body: formData }
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}))
+        throw new Error(
+          (errBody as { detail?: string }).detail ??
+            `Ошибка генерации викторины: ${response.status}`
         )
-
-        if (!response.ok) {
-          const errBody = await response.json().catch(() => ({}))
-          throw new Error(
-            (errBody as { detail?: string }).detail ??
-              "Не удалось сгенерировать викторину"
-          )
-        }
-
-        const data = (await response.json()) as { quiz_id?: string }
-        if (data.quiz_id) {
-          quizId = String(data.quiz_id)
-        }
-      } catch {
-        quizId = MOCK_QUIZ_ID
       }
 
-      navigate(`/edit/${quizId}`)
+      const data = (await response.json()) as { quiz_id?: string }
+      if (!data.quiz_id) {
+        throw new Error("Backend не вернул quiz_id")
+      }
+
+      navigate(`/edit/${String(data.quiz_id)}`)
     } catch (err) {
       setGenerateError(
         err instanceof Error ? err.message : "Ошибка генерации викторины"
