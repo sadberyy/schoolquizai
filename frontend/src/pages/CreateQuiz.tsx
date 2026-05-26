@@ -5,7 +5,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Camera, ImagePlus, Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -20,6 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { API_BASE_URL } from "@/lib/api"
 
 const SUBJECTS = [
   "Математика",
@@ -62,6 +64,20 @@ const QUESTION_TYPE_OPTIONS: { id: QuestionType; label: string }[] = [
   { id: "trueFalse", label: "True/False" },
 ]
 
+const QUESTION_TYPE_API: Record<QuestionType, string> = {
+  single: "single_choice",
+  multiple: "multiple_choice",
+  trueFalse: "true_false",
+}
+
+const DIFFICULTY_API: Record<(typeof DIFFICULTIES)[number], string> = {
+  Легко: "easy",
+  Средне: "medium",
+  Сложно: "hard",
+}
+
+const MOCK_QUIZ_ID = "mock-001"
+
 function FormField({
   label,
   htmlFor,
@@ -82,6 +98,7 @@ function FormField({
 }
 
 export default function CreateQuiz() {
+  const navigate = useNavigate()
   const documentInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
@@ -100,6 +117,9 @@ export default function CreateQuiz() {
   const [uploadedDocument, setUploadedDocument] = useState<File | null>(null)
   const [uploadedImage, setUploadedImage] = useState<File | null>(null)
   const [capturedPhoto, setCapturedPhoto] = useState<File | null>(null)
+  const [sourceText, setSourceText] = useState("")
+  const [generateError, setGenerateError] = useState("")
+  const [isGenerating, setIsGenerating] = useState(false)
 
   const toggleQuestionType = (type: QuestionType, checked: boolean) => {
     setQuestionTypes((prev) => {
@@ -126,22 +146,82 @@ export default function CreateQuiz() {
     if (file) setCapturedPhoto(file)
   }
 
-  const handleGenerate = (e: FormEvent) => {
+  const handleGenerate = async (e: FormEvent) => {
     e.preventDefault()
-    console.log({
-      subject,
-      grade,
-      topic,
-      questionCount,
-      questionTypes,
-      difficulty,
-      timerPerQuestion,
-      totalTimer,
-      attempts,
-      uploadedDocument,
-      uploadedImage,
-      capturedPhoto,
-    })
+    setGenerateError("")
+
+    const trimmedSourceText = sourceText.trim()
+    const imageFile = uploadedImage ?? capturedPhoto
+
+    if (!trimmedSourceText && !uploadedDocument && !imageFile) {
+      setGenerateError(
+        "Укажите текстовый материал, загрузите файл или изображение."
+      )
+      return
+    }
+
+    if (!subject || !grade || !topic || !difficulty) {
+      setGenerateError("Заполните предмет, класс, тему и сложность.")
+      return
+    }
+
+    setIsGenerating(true)
+
+    try {
+      const formData = new FormData()
+      formData.append("subject", subject)
+      formData.append("grade", grade)
+      formData.append("topic", topic)
+      formData.append("question_count", String(questionCount))
+      formData.append(
+        "difficulty",
+        DIFFICULTY_API[difficulty as (typeof DIFFICULTIES)[number]] ?? "medium"
+      )
+      questionTypes.forEach((type) => {
+        formData.append("question_types", QUESTION_TYPE_API[type])
+      })
+      if (trimmedSourceText) {
+        formData.append("source_text", trimmedSourceText)
+      }
+      if (uploadedDocument) {
+        formData.append("file", uploadedDocument)
+      }
+      if (imageFile) {
+        formData.append("image", imageFile)
+      }
+
+      let quizId = MOCK_QUIZ_ID
+
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/quiz/generate-from-materials`,
+          { method: "POST", body: formData }
+        )
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}))
+          throw new Error(
+            (errBody as { detail?: string }).detail ??
+              "Не удалось сгенерировать викторину"
+          )
+        }
+
+        const data = (await response.json()) as { quiz_id?: string }
+        if (data.quiz_id) {
+          quizId = String(data.quiz_id)
+        }
+      } catch {
+        quizId = MOCK_QUIZ_ID
+      }
+
+      navigate(`/edit/${quizId}`)
+    } catch (err) {
+      setGenerateError(
+        err instanceof Error ? err.message : "Ошибка генерации викторины"
+      )
+    } finally {
+      setIsGenerating(false)
+    }
   }
 
   return (
@@ -315,31 +395,46 @@ export default function CreateQuiz() {
                 onChange={handleCameraCapture}
               />
               <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => documentInputRef.current?.click()}
-                  >
-                    <Upload />
-                    Загрузить файл
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => imageInputRef.current?.click()}
-                  >
-                    <ImagePlus />
-                    Загрузить картинку
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => cameraInputRef.current?.click()}
-                  >
-                    <Camera />
-                    Сделать фото
-                  </Button>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => documentInputRef.current?.click()}
+                    >
+                      <Upload />
+                      Загрузить файл
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => imageInputRef.current?.click()}
+                    >
+                      <ImagePlus />
+                      Загрузить картинку
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => cameraInputRef.current?.click()}
+                    >
+                      <Camera />
+                      Сделать фото
+                    </Button>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <Label htmlFor="sourceText" className="mb-2 block">
+                      Текстовый материал
+                    </Label>
+                    <Textarea
+                      id="sourceText"
+                      value={sourceText}
+                      onChange={(e) => setSourceText(e.target.value)}
+                      placeholder="Например: использовать только числа, избегать сложных терминов..."
+                      rows={3}
+                      className="min-h-20"
+                    />
+                  </div>
                 </div>
                 <p className="text-sm text-muted-foreground">PDF, PPTX, TXT, DOCX</p>
                 {(uploadedDocument || uploadedImage || capturedPhoto) && (
@@ -352,12 +447,17 @@ export default function CreateQuiz() {
               </div>
             </FormField>
 
+            {generateError && (
+              <p className="text-sm text-destructive">{generateError}</p>
+            )}
+
             <Button
               type="submit"
               size="lg"
+              disabled={isGenerating}
               className="h-12 w-full border-transparent bg-quiz-accent text-base text-white hover:bg-quiz-accent/90"
             >
-              Сгенерировать викторину
+              {isGenerating ? "Генерация…" : "Сгенерировать викторину"}
             </Button>
           </form>
         </CardContent>

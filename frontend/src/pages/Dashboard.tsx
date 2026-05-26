@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Pencil,
   Presentation,
+  Trash2,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -42,6 +43,7 @@ export interface DashboardProps {
   quizzes?: DashboardQuiz[]
   onLogin: (userData: User) => void
   onLogout: () => void
+  onDeleteQuiz: (quizId: string) => void
 }
 
 const CARD_CLASS =
@@ -77,6 +79,7 @@ export default function Dashboard({
   quizzes: quizzesProp,
   onLogin,
   onLogout,
+  onDeleteQuiz,
 }: DashboardProps) {
   const [quizzes, setQuizzes] = useState<DashboardQuiz[]>(
     quizzesProp ?? MOCK_QUIZZES
@@ -172,6 +175,11 @@ export default function Dashboard({
     setLoginEmail("")
     setLoginPassword("")
     onLogout()
+  }
+
+  const handleDeleteQuiz = (quizId: string) => {
+    setQuizzes((prev) => prev.filter((q) => q.id !== quizId))
+    onDeleteQuiz(quizId)
   }
 
   if (!user) {
@@ -380,6 +388,16 @@ export default function Dashboard({
                       <BarChart3 />
                       Результаты
                     </Link>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => handleDeleteQuiz(quiz.id)}
+                    aria-label="Удалить викторину"
+                  >
+                    <Trash2 className="size-4" />
                   </Button>
                 </div>
               </CardContent>

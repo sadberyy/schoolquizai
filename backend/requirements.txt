@@ -15,3 +15,8 @@ fpdf2
 latex2mathml
 lxml
 SQLAlchemy
+matplotlib
+Pillow
+reportlab
+sqlalchemy
+playwright

@@ -1,17 +1,29 @@
 import math
+import os
 import re
+import tempfile
 from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
 
 from fastapi import HTTPException
-from fpdf import FPDF
 from lxml import etree
 from pptx import Presentation
 from pptx.enum.text import MSO_AUTO_SIZE
 from pptx.oxml.ns import qn
+from PIL import Image as PILImage
 
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
+
+import matplotlib
+matplotlib.use('Agg')
+
+from app.services.latex_renderer import render_latex_to_png
 from app.db.database import get_db_session
 from app.db.models import Question, Quiz
 from app.services.latex_to_omml import latex_to_omml
@@ -33,12 +45,23 @@ _TYPE_LABELS = {
     "multiple_choice": "Несколько вариантов",
     "true_false": "Верно / Неверно",
 }
+
+_FONT_PATH = None
+for candidate in _FONT_CANDIDATES:
+    if candidate.is_file():
+        _FONT_PATH = str(candidate)
+        pdfmetrics.registerFont(TTFont('DejaVu', _FONT_PATH))
+        pdfmetrics.registerFont(TTFont('DejaVu-Bold', _FONT_PATH))  # жирный тот же файл
+        break
+
+if not _FONT_PATH:
+    raise RuntimeError("Не найден шрифт DejaVuSans для PDF")
+
+
 # Эмпирические константы под стандартный layout 1 (Title and Content) 16:9
 _PPTX_BODY_WIDTH_CHARS = 60   # ~ сколько символов умещается в строку плейсхолдера при 18pt
 _PPTX_BODY_MAX_LINES   = 12   # сколько визуальных строк помещается по высоте при 18pt
-# _PPTX_MAX_BODY_LINES = 10
 _PPTX_WRAP_CHARS = 78
-_LATEX_EXPORT_NOTE = "Формулы в экспорте показаны упрощённо (без LaTeX-рендеринга)."
 _LATEX_MARKER_RE = re.compile(
     r"\\frac|\\sqrt|\$\$?|\\\[|\\\]|\\[a-zA-Z]{2,}"
 )
@@ -266,11 +289,13 @@ def _resolve_pdf_font_path() -> Path:
 
 
 def _safe_filename(title: str, extension: str) -> str:
+    """Создаёт имя файла"""
     base = re.sub(r'[<>:"/\\|?*]', "", title).strip() or "quiz"
     base = base[:80]
     return f"{base}.{extension}"
 
 
+# Загрузка викторины
 def load_quiz_with_questions(quiz_id: str) -> tuple[Quiz, list[Question]]:
     with get_db_session() as session:
         quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
@@ -283,10 +308,8 @@ def load_quiz_with_questions(quiz_id: str) -> tuple[Quiz, list[Question]]:
             .order_by(Question.order_idx)
             .all()
         )
-
         if not questions:
             raise HTTPException(status_code=400, detail="Викторина не содержит вопросов")
-
         session.expunge(quiz)
         for question in questions:
             session.expunge(question)
@@ -300,12 +323,10 @@ def export_quiz(
     mode: ExportMode = "teacher",
 ) -> tuple[bytes, str, str]:
     quiz, questions = load_quiz_with_questions(quiz_id)
-
     if export_format == "pptx":
         return _build_pptx(quiz, questions, mode)
     if export_format == "pdf":
         return _build_pdf(quiz, questions, mode)
-
     raise HTTPException(status_code=400, detail="Формат должен быть pptx или pdf")
 
 
@@ -321,63 +342,6 @@ def _quiz_subtitle(quiz: Quiz) -> str:
     return " · ".join(parts)
 
 
-def _quiz_has_latex_content(questions: list[Question]) -> bool:
-    for question in questions:
-        if _contains_latex_markers(question.question_text):
-            return True
-        if _contains_latex_markers(question.explanation):
-            return True
-        for option in question.answers or []:
-            if isinstance(option, str) and _contains_latex_markers(option):
-                return True
-            if isinstance(option, dict):
-                for key in ("text", "label"):
-                    if _contains_latex_markers(option.get(key)):
-                        return True
-    return False
-
-
-def _question_body_lines(question: Question, mode: ExportMode) -> list[tuple[str, int]]:
-    lines: list[tuple[str, int]] = []
-    for part in _wrap_text_lines(_simplify_latex_for_export(question.question_text)):
-        lines.append((part, 0))
-
-    type_label = _TYPE_LABELS.get(question.question_type, question.question_type)
-    lines.append((f"Тип: {type_label}", 0))
-
-    for option in question.answers or []:
-        for part in _wrap_text_lines(f"• {_format_option(option)}"):
-            lines.append((part, 1))
-
-    if mode == "teacher":
-        answer_text = _simplify_latex_for_export(_format_answers(question.correct_answers))
-        for part in _wrap_text_lines(f"Правильный ответ: {answer_text}"):
-            lines.append((part, 0))
-        if question.explanation:
-            for part in _wrap_text_lines(
-                f"Пояснение: {_simplify_latex_for_export(question.explanation)}"
-            ):
-                lines.append((part, 0))
-
-    return lines
-
-
-# def _paginate_body_lines(lines: list[tuple[str, int]]) -> list[list[tuple[str, int]]]:
-#     if not lines:
-#         return [[]]
-#
-#     pages: list[list[tuple[str, int]]] = []
-#     current: list[tuple[str, int]] = []
-#
-#     for line in lines:
-#         if len(current) >= _PPTX_MAX_BODY_LINES:
-#             pages.append(current)
-#             current = []
-#         current.append(line)
-#
-#     if current:
-#         pages.append(current)
-#     return pages
 def _visual_line_count(text: str, level: int) -> int:
     # с поправкой на отступ для уровня
     width = _PPTX_BODY_WIDTH_CHARS - (4 if level > 0 else 0)
@@ -474,74 +438,187 @@ def _build_pptx(
     return buffer.getvalue(), filename, media_type
 
 
-def _build_pdf(
-    quiz: Quiz,
-    questions: list[Question],
-    mode: ExportMode,
-) -> tuple[bytes, str, str]:
-    font_path = _resolve_pdf_font_path()
+# PDF экспорт
+def _clean_latex_text(text: str) -> str:
+    """
+    Очищает текст от артефактов:
+    - Заменяем двойные скобки [[]] на []
+    - Заменяет \\ на \
+    - Убирает [ ] вокруг LaTeX-формул
+    """
+    text = text.replace('\\\\', '\\')
+    text = text.replace('[[', '[').replace(']]', ']')
+    text = re.sub(r'\[\s*(\$.+?\$)\s*\]', r'\1', text)
 
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_margins(15, 15, 15)
-    pdf.add_font("DejaVu", "", str(font_path))
-    pdf.add_font("DejaVu", "B", str(font_path))
-    pdf.set_font("DejaVu", size=12)
-    line_width = pdf.epw
+    return text
 
-    pdf.add_page()
-    pdf.set_font("DejaVu", "B", 18)
-    pdf.multi_cell(line_width, 10, quiz.title)
-    pdf.ln(4)
 
-    subtitle_parts = [_quiz_subtitle(quiz)]
-    if _quiz_has_latex_content(questions):
-        subtitle_parts.append(_LATEX_EXPORT_NOTE)
-    subtitle = " · ".join(part for part in subtitle_parts if part)
+def _draw_inline_text(c: canvas.Canvas, text: str, x: float, y: float, max_width: float,
+                      font_name: str = "DejaVu", font_size: int = 11, line_height: int = 14) -> float:
+    """
+    Рисует текст с inline LaTeX-формулами.
+    Сначала рендерит все LaTeX-формулы как изображения,
+    затем выводит оставшийся текст БЕЗ формул.
+    """
+    text = _clean_latex_text(text)
+
+    latex_parts = re.findall(r'\$(.+?)\$', text)
+
+    # удаляем все latex-формулы из текста
+    clean_text = re.sub(r'\$.+?\$', '<<<LATEX_PLACEHOLDER>>>', text)
+    text_parts = clean_text.split('<<<LATEX_PLACEHOLDER>>>')
+
+    current_x = x
+    current_y = y
+    latex_index = 0
+
+    for i, text_part in enumerate(text_parts):
+        # текстовая часть
+        if text_part:
+            words = text_part.split(' ')
+            for j, word in enumerate(words):
+                if j > 0:
+                    word = ' ' + word
+
+                c.setFont(font_name, font_size)
+                width = c.stringWidth(word, font_name, font_size)
+
+                if current_x + width > x + max_width and current_x > x:
+                    current_y -= line_height
+                    current_x = x
+                    word = word.lstrip()
+                    width = c.stringWidth(word, font_name, font_size)
+
+                c.drawString(current_x, current_y, word)
+                current_x += width
+
+        if i < len(text_parts) - 1 and latex_index < len(latex_parts):
+            latex = latex_parts[latex_index]
+            latex_index += 1
+
+            img_bytes = render_latex_to_png(latex)
+            if img_bytes:
+                tmp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                        tmp.write(img_bytes)
+                        tmp_path = tmp.name
+
+                    img = PILImage.open(tmp_path)
+                    img_w, img_h = img.size
+
+                    scale = (font_size * 1.5) / img_h
+                    w = img_w * scale * 0.75
+                    h = img_h * scale * 0.75
+
+                    if current_x + w > x + max_width and current_x > x:
+                        current_y -= line_height
+                        current_x = x
+
+                    c.drawImage(tmp_path, current_x, current_y - h + (font_size * 0.9),
+                                width=w, height=h)
+                    current_x += w + 2
+                except Exception as e:
+                    import logging
+                    logging.warning("Failed to render LaTeX %r: %s", latex, e)
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        try:
+                            os.unlink(tmp_path)
+                        except OSError:
+                            pass
+
+    return current_y - line_height
+
+
+def _build_pdf(quiz: Quiz, questions: list[Question], mode: ExportMode) -> tuple[bytes, str, str]:
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+
+    margin = 20 * mm
+    max_text_width = width - 2 * margin
+
+    x = margin
+    y = height - margin
+
+    # титульник
+    c.setFont("DejaVu-Bold", 18)
+    c.drawString(x, y, quiz.title or "Викторина")
+    y -= 25
+
+    subtitle = _quiz_subtitle(quiz)
     if subtitle:
-        pdf.set_font("DejaVu", size=12)
-        pdf.multi_cell(line_width, 8, subtitle)
-        pdf.ln(6)
+        c.setFont("DejaVu", 12)
+        c.drawString(x, y, subtitle)
+        y -= 30
 
     for index, question in enumerate(questions, start=1):
-        pdf.add_page()
-        pdf.set_font("DejaVu", "B", 14)
-        pdf.multi_cell(line_width, 8, f"Вопрос {index}")
-        pdf.ln(2)
+        # проверка места на странице
+        if y < 80:
+            c.showPage()
+            y = height - margin
 
-        pdf.set_font("DejaVu", size=12)
-        pdf.multi_cell(
-            line_width,
-            7,
-            _simplify_latex_for_export(question.question_text),
-        )
-        pdf.ln(2)
+        # номер вопроса
+        c.setFont("DejaVu-Bold", 14)
+        c.drawString(x, y, f"Вопрос {index}")
+        y -= 22
 
+        # текст вопроса
+        y = _draw_inline_text(c, question.question_text, x, y, max_text_width, "DejaVu", 11, 14)
+        y -= 8
+
+        # тип вопроса
         type_label = _TYPE_LABELS.get(question.question_type, question.question_type)
-        pdf.set_font("DejaVu", size=11)
-        pdf.multi_cell(line_width, 6, f"Тип: {type_label}")
-        pdf.ln(1)
+        c.setFont("DejaVu", 10)
+        c.drawString(x, y, f"Тип: {type_label}")
+        y -= 18
 
+        # варианты ответов
         for option in question.answers or []:
-            pdf.multi_cell(line_width, 6, f"- {_format_option(option)}")
+            if y < 30:
+                c.showPage()
+                y = height - margin
+            y = _draw_inline_text(c, f"- {_format_option(option)}", x, y, max_text_width, "DejaVu", 11, 14)
 
+        # правильные ответы и пояснение
         if mode == "teacher":
-            pdf.ln(2)
-            pdf.set_font("DejaVu", "B", size=11)
-            pdf.multi_cell(
-                line_width,
-                6,
-                "Правильный ответ: "
-                + _simplify_latex_for_export(_format_answers(question.correct_answers)),
-            )
-            if question.explanation:
-                pdf.set_font("DejaVu", size=11)
-                pdf.multi_cell(
-                    line_width,
-                    6,
-                    "Пояснение: " + _simplify_latex_for_export(question.explanation),
-                )
+            y -= 8
+            if y < 40:
+                c.showPage()
+                y = height - margin
 
-    filename = _safe_filename(quiz.title, "pdf")
-    media_type = "application/pdf"
-    return pdf.output(), filename, media_type
+            c.setFont("DejaVu-Bold", 10)
+            c.drawString(x, y, "Правильный ответ:")
+            y -= 16
+
+            if isinstance(question.correct_answers, list):
+                for answer in question.correct_answers:
+                    if y < 20:
+                        c.showPage()
+                        y = height - margin
+                    y = _draw_inline_text(c, str(answer), x, y, max_text_width, "DejaVu", 10, 13)
+            else:
+                y = _draw_inline_text(c, str(question.correct_answers or ""), x, y, max_text_width, "DejaVu", 10, 13)
+
+            if question.explanation:
+                y -= 8
+                if y < 40:
+                    c.showPage()
+                    y = height - margin
+                c.setFont("DejaVu-Bold", 10)
+                c.drawString(x, y, "Пояснение:")
+                y -= 16
+                y = _draw_inline_text(c, question.explanation, x, y, max_text_width, "DejaVu", 10, 13)
+
+        # отступ меж вопросами
+        y -= 20
+
+        # новая страница для след вопроса
+        if index < len(questions):
+            c.showPage()
+            y = height - margin
+
+    c.save()
+    buf.seek(0)
+    return buf.getvalue(), _safe_filename(quiz.title, "pdf"), "application/pdf"

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useParams } from "react-router-dom"
 import { Plus, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { API_BASE_URL, STUDENT_QUIZ_BASE_URL } from "@/lib/api"
 import {
   DIFFICULTIES,
   type Difficulty,
@@ -75,6 +76,18 @@ const createDefaultOptions = (type: QuestionType): QuizAnswerOption[] => {
     createOption("Вариант 4", false, 1),
   ]
 }
+
+const createNewQuestionOptions = (): QuizAnswerOption[] =>
+  Array.from({ length: 5 }, (_, i) => createOption("", i === 0, 1))
+
+const createNewQuestion = (): QuizQuestion => ({
+  id: genId(),
+  type: "single",
+  text: "",
+  source: "",
+  explanation: "",
+  options: createNewQuestionOptions(),
+})
 
 export const MOCK_QUIZ_DATA: QuizData = {
   id: "quiz-mock-001",
@@ -198,9 +211,13 @@ export default function EditQuiz({
   onSave,
   onPublish,
 }: EditQuizProps) {
+  const { quizId: routeQuizId } = useParams<{ quizId: string }>()
+
   const [quiz, setQuiz] = useState<QuizData>(() =>
     normalizeQuizData(quizData ?? MOCK_QUIZ_DATA)
   )
+
+  const resolvedQuizId = routeQuizId ?? quiz.id ?? "mock-001"
 
   useEffect(() => {
     setQuiz(normalizeQuizData(quizData ?? MOCK_QUIZ_DATA))
@@ -335,6 +352,26 @@ export default function EditQuiz({
     }))
   }, [])
 
+  const insertQuestionAfter = useCallback((afterQuestionId: string) => {
+    setQuiz((prev) => {
+      const index = prev.questions.findIndex((q) => q.id === afterQuestionId)
+      if (index === -1) return prev
+      const questions = [...prev.questions]
+      questions.splice(index + 1, 0, createNewQuestion())
+      return { ...prev, questions }
+    })
+  }, [])
+
+  const removeQuestion = useCallback((questionId: string) => {
+    setQuiz((prev) => {
+      if (prev.questions.length <= 1) return prev
+      return {
+        ...prev,
+        questions: prev.questions.filter((q) => q.id !== questionId),
+      }
+    })
+  }, [])
+
   const getPayload = useCallback(
     () => buildQuizPayload(quiz),
     [quiz]
@@ -346,13 +383,29 @@ export default function EditQuiz({
 
   const handlePublish = async () => {
     const payload = getPayload()
-    const link = `${window.location.origin}/quiz/${payload.id ?? "demo"}`
+    const link = `${STUDENT_QUIZ_BASE_URL}/${resolvedQuizId}`
     try {
       await navigator.clipboard.writeText(link)
     } catch {
       // clipboard may be unavailable
     }
     onPublish?.(payload)
+  }
+
+  const handleDownloadPdf = () => {
+    window.open(
+      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pdf`,
+      "_blank",
+      "noopener,noreferrer"
+    )
+  }
+
+  const handleDownloadPptx = () => {
+    window.open(
+      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pptx`,
+      "_blank",
+      "noopener,noreferrer"
+    )
   }
 
   const parseNumberInput = (value: string, min: number, fallback: number) =>
@@ -470,12 +523,40 @@ export default function EditQuiz({
 
       <div className="mt-4 flex flex-col gap-4">
         {quiz.questions.map((question, index) => (
-          <Card key={question.id} className={QUESTION_CARD_CLASS}>
+          <Card key={question.id} className={cn(QUESTION_CARD_CLASS, "card")}>
             <CardHeader className="pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <CardTitle className="text-base font-semibold">
                   Вопрос №{index + 1}
                 </CardTitle>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-8 shrink-0"
+                    onClick={() => insertQuestionAfter(question.id)}
+                    title="Добавить вопрос после этого"
+                    aria-label="Добавить вопрос после этого"
+                  >
+                    <Plus className="size-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-8 shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeQuestion(question.id)}
+                    disabled={quiz.questions.length <= 1}
+                    title="Удалить вопрос"
+                    aria-label="Удалить вопрос"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-col gap-1">
+                <Label htmlFor={`type-${question.id}`}>Тип вопроса</Label>
                 <Select
                   value={question.type}
                   onValueChange={(value) =>
@@ -484,7 +565,7 @@ export default function EditQuiz({
                 >
                   <SelectTrigger
                     id={`type-${question.id}`}
-                    className="w-[220px]"
+                    className="w-full sm:w-[240px]"
                   >
                     <SelectValue />
                   </SelectTrigger>
@@ -494,10 +575,10 @@ export default function EditQuiz({
                     <SelectItem value="trueFalse">True/False</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-sm text-muted-foreground">
+                  {QUESTION_TYPE_LABELS[question.type]}
+                </p>
               </div>
-              <p className="text-sm font-medium text-muted-foreground">
-                Тип: {QUESTION_TYPE_LABELS[question.type]}
-              </p>
             </CardHeader>
 
             <CardContent className="flex flex-col gap-4">
@@ -654,12 +735,11 @@ export default function EditQuiz({
           >
             Сохранить черновик
           </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => console.log("Скачать PDF", getPayload())}
-          >
+          <Button type="button" variant="secondary" onClick={handleDownloadPdf}>
             Скачать PDF
+          </Button>
+          <Button type="button" variant="secondary" onClick={handleDownloadPptx}>
+            Скачать PPTX
           </Button>
           <Button
             type="button"

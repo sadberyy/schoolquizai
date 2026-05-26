@@ -31,11 +31,10 @@ class QuizService:
     """
 
     def _extract_json(self, raw_text: str) -> dict:
-        """Извлекает JSON между [JSON_START] и [JSON_END], чинит переносы строк и LaTeX."""
-    
+        """Извлекает JSON между [JSON_START] и [JSON_END]."""
         raw_text = raw_text.strip()
     
-        # начало и конец json
+        # json между тегами
         start = raw_text.find('[JSON_START]')
         end = raw_text.find('[JSON_END]')
     
@@ -44,16 +43,16 @@ class QuizService:
         elif start != -1:
             raw_text = raw_text[start + len('[JSON_START]'):].strip()
     
-        # Удаляем markdown-обёртку
+        # удаляем markdown-обёртку
         if raw_text.startswith("```"):
             raw_text = raw_text.replace("```json", "").replace("```", "").strip()
     
-        # незавершенные строки
+        # обрезка до последней }
         last_brace = raw_text.rfind('}')
         if last_brace > 0:
             raw_text = raw_text[:last_brace + 1]
     
-        # если структуры не закрылись
+        # закрываем незакрытые структуры
         open_braces = raw_text.count('{')
         close_braces = raw_text.count('}')
         open_brackets = raw_text.count('[')
@@ -62,15 +61,15 @@ class QuizService:
         raw_text += '}' * (open_braces - close_braces)
         raw_text += ']' * (open_brackets - close_brackets)
     
-        def fix_newlines(match):
-            content = match.group(1)
-            content = content.replace('\n', '\\n').replace('\r', '')
-            return f'"{content}"'
+        # замена \ перед буквами на \\ (Latex)
+        raw_text = re.sub(r'(?<!\\)\\([a-zA-Z]+)', r'\\\\\1', raw_text)
+
+        raw_text = raw_text.replace('\n', ' ').replace('\r', '')
     
-        raw_text = re.sub(r'"([^"]*)"', fix_newlines, raw_text)
+        raw_text = raw_text.strip()
     
-        # заменяем \ перед буквами на \\ (latex-команды)
-        raw_text = re.sub(r'\\([a-zA-Z])', r'\\\\\1', raw_text)
+        if not raw_text:
+            raise ValueError("Пустой JSON после обработки")
     
         return json.loads(raw_text)
 
