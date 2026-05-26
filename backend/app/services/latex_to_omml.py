@@ -1,4 +1,3 @@
-"""LaTeX → OMML конвертер. Используется в экспорте PPTX."""
 from functools import lru_cache
 from pathlib import Path
 
@@ -6,6 +5,7 @@ from lxml import etree
 import latex2mathml.converter
 
 _XSL_PATH = Path(__file__).resolve().parent.parent / "assets" / "xsl" / "MML2OMML.XSL"
+_M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 
 
 @lru_cache(maxsize=1)
