@@ -5,6 +5,7 @@ WORKDIR /app
 # для Playwright
 RUN apt-get update && apt-get install -y \
     wget gnupg curl \
+    fonts-dejavu-core \
     libnss3 libatk-bridge2.0-0 libxkbcommon0 \
     libgtk-3-0 libasound2 \
     && rm -rf /var/lib/apt/lists/*

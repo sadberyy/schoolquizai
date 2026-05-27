@@ -1,11 +1,21 @@
+import json
+import logging
+
 from playwright.sync_api import sync_playwright
 
+logger = logging.getLogger(__name__)
 
-def render_latex_to_png(latex: str) -> bytes:
-    """Рендеринг Latex-формул в PNG через Playwright + KaTeX"""
-    # спецсимволы для HTML
-    latex_escaped = latex.replace('\\', '\\\\')
-    
+
+def render_latex_to_png(latex: str) -> bytes | None:
+    """
+    Рендеринг LaTeX в PNG через Playwright + KaTeX (+ mhchem).
+    При ошибке (нет браузера, сеть, невалидный LaTeX) возвращает None — не бросает исключение наружу.
+    """
+    if not latex or not str(latex).strip():
+        return None
+
+    latex_js = json.dumps(str(latex).strip())
+
     html = f"""
     <!DOCTYPE html>
     <html>
@@ -27,7 +37,7 @@ def render_latex_to_png(latex: str) -> bytes:
         <div id="formula"></div>
         <script>
             try {{
-                katex.render("{latex_escaped}", document.getElementById("formula"), {{
+                katex.render({latex_js}, document.getElementById("formula"), {{
                     throwOnError: true,
                     displayMode: false
                 }});
@@ -38,16 +48,18 @@ def render_latex_to_png(latex: str) -> bytes:
     </body>
     </html>
     """
-    
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 800, "height": 100})
-        page.set_content(html, wait_until="networkidle")
-        
-        page.wait_for_selector("#formula", state="attached")
-        
-        element = page.locator("#formula")
-        screenshot = element.screenshot(type="png")
-        
-        browser.close()
-        return screenshot
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(viewport={"width": 800, "height": 200})
+                page.set_content(html, wait_until="domcontentloaded", timeout=90_000)
+                page.wait_for_selector("#formula", state="attached", timeout=60_000)
+                element = page.locator("#formula")
+                return element.screenshot(type="png")
+            finally:
+                browser.close()
+    except Exception as e:
+        logger.warning("render_latex_to_png failed: %s", e, exc_info=False)
+        return None

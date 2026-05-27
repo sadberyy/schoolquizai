@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { API_BASE_URL } from "@/lib/api"
+import { QUESTION_TYPE_HINTS } from "@/constants/quiz";
 import {
   buildStudentAnswerPayload,
   mapQuizMetaFromApi,
@@ -710,6 +711,9 @@ export default function StudentQuiz({
 
       <Card className="border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
         <CardContent className="flex flex-col gap-5 pt-6">
+          <p className="text-sm font-medium text-muted-foreground sm:text-base">
+            {QUESTION_TYPE_HINTS[currentQuestion.type]}
+          </p>
           <h2 className="text-xl font-semibold leading-snug sm:text-2xl">
             {currentQuestion.text}
           </h2>
