@@ -446,7 +446,7 @@ def _question_body_paragraphs(question: Question, mode: ExportMode) -> list[tupl
 
     for option in question.answers or []:
         opt_raw = _format_option_raw(option)
-        paragraphs.append((f"• {opt_raw}", 1))
+        paragraphs.append((opt_raw, 1))
 
     if mode == "teacher":
         answer = _format_answers(question.correct_answers)

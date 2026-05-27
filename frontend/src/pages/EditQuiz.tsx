@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { Plus, Trash2 } from "lucide-react"
+import { Download, Plus, Trash2 } from "lucide-react"
 
 import { MathPreview } from "@/components/MathText"
 import { Button } from "@/components/ui/button"
@@ -229,6 +229,7 @@ const DIFFICULTY_API: Record<Difficulty, "easy" | "medium" | "hard"> = {
   Сложно: "hard",
 }
 type TimerMode = "per_question" | "total" | "none"
+type ExportMode = "teacher" | "student"
 
 function mapDifficultyBackendToFrontend(difficulty: string | null | undefined) {
   if (difficulty === "easy") return "Легко" as Difficulty
@@ -411,6 +412,8 @@ export default function EditQuiz({
   const [isLoadingQuiz, setIsLoadingQuiz] = useState(!quizData)
   const [loadError, setLoadError] = useState("")
   const [isSavingQuiz, setIsSavingQuiz] = useState(false)
+  const [pdfExportMode, setPdfExportMode] = useState<ExportMode>("teacher")
+  const [pptxExportMode, setPptxExportMode] = useState<ExportMode>("teacher")
   const [saveError, setSaveError] = useState("")
 
   useEffect(() => {
@@ -799,7 +802,7 @@ export default function EditQuiz({
 
   const handleDownloadPdf = () => {
     void downloadAuthenticatedFile(
-      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pdf`,
+      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pdf&mode=${pdfExportMode}`,
       "quiz.pdf"
     ).catch((err) => {
       setSaveError(err instanceof Error ? err.message : "Не удалось скачать PDF")
@@ -808,7 +811,7 @@ export default function EditQuiz({
 
   const handleDownloadPptx = () => {
     void downloadAuthenticatedFile(
-      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pptx`,
+      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pptx&mode=${pptxExportMode}`,
       "quiz.pptx"
     ).catch((err) => {
       setSaveError(err instanceof Error ? err.message : "Не удалось скачать PPTX")
@@ -1188,22 +1191,52 @@ export default function EditQuiz({
           >
             Сохранить черновик
           </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleDownloadPdf}
-            disabled={isLoadingQuiz || isSavingQuiz}
-          >
-            Скачать PDF
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleDownloadPptx}
-            disabled={isLoadingQuiz || isSavingQuiz}
-          >
-            Скачать PPTX
-          </Button>
+          <div className="flex items-center gap-2">
+            <Select
+              value={pdfExportMode}
+              onValueChange={(value) => setPdfExportMode(value as ExportMode)}
+            >
+              <SelectTrigger className="w-[180px] bg-white" aria-label="Экспорт PDF">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="teacher">Для учителя</SelectItem>
+                <SelectItem value="student">Для учеников</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleDownloadPdf}
+              disabled={isLoadingQuiz || isSavingQuiz}
+            >
+              <Download className="size-4" />
+              Скачать PDF
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={pptxExportMode}
+              onValueChange={(value) => setPptxExportMode(value as ExportMode)}
+            >
+              <SelectTrigger className="w-[180px] bg-white" aria-label="Экспорт PPTX">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="teacher">Для учителя</SelectItem>
+                <SelectItem value="student">Для учеников</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleDownloadPptx}
+              disabled={isLoadingQuiz || isSavingQuiz}
+            >
+              <Download className="size-4" />
+              Скачать PPTX
+            </Button>
+          </div>
           <Button
             type="button"
             variant="secondary"
