@@ -156,8 +156,21 @@ export async function downloadAuthenticatedFile(
   const blob = await response.blob()
   const objectUrl = URL.createObjectURL(blob)
   const link = document.createElement("a")
+  const contentDisposition = response.headers.get("content-disposition") ?? ""
+  const encodedNameMatch = contentDisposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)
+  const plainNameMatch = contentDisposition.match(/filename\s*=\s*"([^"]+)"|filename\s*=\s*([^;]+)/i)
+  const rawServerName = encodedNameMatch?.[1] ?? plainNameMatch?.[1] ?? plainNameMatch?.[2]
+  let resolvedName = fallbackFilename
+  if (rawServerName) {
+    const normalized = rawServerName.trim()
+    try {
+      resolvedName = decodeURIComponent(normalized)
+    } catch {
+      resolvedName = normalized
+    }
+  }
   link.href = objectUrl
-  link.download = fallbackFilename
+  link.download = resolvedName
   document.body.appendChild(link)
   link.click()
   link.remove()

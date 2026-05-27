@@ -6,14 +6,13 @@ import re
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from urllib.parse import quote
-
 from app.core.deps import (
     CurrentUser,
     get_current_user,
     get_optional_current_user,
     require_quiz_owner,
 )
+from app.core.http_utils import content_disposition_attachment
 from app.core.logger import logger
 from app.db.database import get_db_session
 from app.db.models import Quiz, Question, Result
@@ -423,15 +422,10 @@ def export_quiz_route(
 ):
     require_quiz_owner(quiz_id, current_user.id)
     file_bytes, filename, media_type = export_quiz(quiz_id, format, mode)
-    ascii_fallback = "quiz." + filename.rsplit(".", 1)[-1] if "." in filename else "quiz"
-    disposition = (
-        f'attachment; filename="{ascii_fallback}"; '
-        f"filename*=UTF-8''{quote(filename, safe='')}"
-    )
     return StreamingResponse(
         BytesIO(file_bytes),
         media_type=media_type,
-        headers={"Content-Disposition": disposition},
+        headers=content_disposition_attachment(filename),
     )
 
 
@@ -724,15 +718,8 @@ def export_results_route(
     file_bytes, filename, media_type = export_results_pdf(
         quiz_id, sort_by=sort_by, sort_dir=sort_dir
     )
-    ascii_fallback = "results.pdf"
-    if "." in filename:
-        ascii_fallback = "results." + filename.rsplit(".", 1)[-1]
-    disposition = (
-        f'attachment; filename="{ascii_fallback}"; '
-        f"filename*=UTF-8''{quote(filename, safe='')}"
-    )
     return StreamingResponse(
         BytesIO(file_bytes),
         media_type=media_type,
-        headers={"Content-Disposition": disposition},
+        headers=content_disposition_attachment(filename),
     )

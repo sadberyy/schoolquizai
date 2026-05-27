@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { API_BASE_URL, STUDENT_QUIZ_BASE_URL } from "@/lib/api"
 import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
+import { buildDownloadFilename } from "@/lib/downloadFilename"
 import { readApiError } from "@/lib/quizApi"
 import {
   DIFFICULTIES,
@@ -803,7 +804,7 @@ export default function EditQuiz({
   const handleDownloadPdf = () => {
     void downloadAuthenticatedFile(
       `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pdf&mode=${pdfExportMode}`,
-      "quiz.pdf"
+      buildDownloadFilename(quiz.title, "pdf")
     ).catch((err) => {
       setSaveError(err instanceof Error ? err.message : "Не удалось скачать PDF")
     })
@@ -812,7 +813,7 @@ export default function EditQuiz({
   const handleDownloadPptx = () => {
     void downloadAuthenticatedFile(
       `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pptx&mode=${pptxExportMode}`,
-      "quiz.pptx"
+      buildDownloadFilename(quiz.title, "pptx")
     ).catch((err) => {
       setSaveError(err instanceof Error ? err.message : "Не удалось скачать PPTX")
     })

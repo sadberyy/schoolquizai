@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { API_BASE_URL } from "@/lib/api"
 import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
+import { buildDownloadFilename } from "@/lib/downloadFilename"
 import { mapResultsFromApi, readApiError } from "@/lib/quizApi"
 import { cn } from "@/lib/utils"
 import type { QuizData } from "@/types/quiz"
@@ -280,7 +281,7 @@ export default function Results({ quizData, results }: ResultsProps) {
     })
     void downloadAuthenticatedFile(
       `${API_BASE_URL}/quiz/${routeQuizId}/results/export?${params.toString()}`,
-      "results.pdf"
+      buildDownloadFilename(quizTitle, "pdf", { suffix: "_результаты" })
     ).catch((err) => {
       setExportError(err instanceof Error ? err.message : "Не удалось скачать PDF")
     })
