@@ -24,6 +24,7 @@ export interface QuizData {
   title: string
   difficulty: Difficulty
   attempts: number
+  timerMode: "per_question" | "total" | "none"
   timerPerQuestion: number
   totalTimer: number
   maxScore: number

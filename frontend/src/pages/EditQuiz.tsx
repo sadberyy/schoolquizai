@@ -97,6 +97,7 @@ export const MOCK_QUIZ_DATA: QuizData = {
   title: "Викторина по биологии — Клетка",
   difficulty: "Средне",
   attempts: 3,
+  timerMode: "per_question",
   timerPerQuestion: 60,
   totalTimer: 30,
   maxScore: 0,
@@ -185,14 +186,20 @@ function normalizeQuizData(data: QuizData): QuizData {
   const difficulty = DIFFICULTIES.includes(data.difficulty as Difficulty)
     ? data.difficulty
     : "Средне"
+  const timerPerQuestion = Math.max(0, Number(data.timerPerQuestion) || 0)
+  const totalTimer = Math.max(0, Number(data.totalTimer) || 0)
+  const timerMode: TimerMode =
+    data.timerMode ??
+    (timerPerQuestion > 0 ? "per_question" : totalTimer > 0 ? "total" : "none")
 
   return {
     id: data.id,
     title: data.title ?? "",
     difficulty,
     attempts: Math.max(1, Number(data.attempts) || 1),
-    timerPerQuestion: Math.max(0, Number(data.timerPerQuestion) || 0),
-    totalTimer: Math.max(0, Number(data.totalTimer) || 0),
+    timerMode,
+    timerPerQuestion,
+    totalTimer,
     maxScore: 0,
     questions: questions.length > 0 ? questions : MOCK_QUIZ_DATA.questions.map(normalizeQuestion),
   }
@@ -221,6 +228,7 @@ const DIFFICULTY_API: Record<Difficulty, "easy" | "medium" | "hard"> = {
   Средне: "medium",
   Сложно: "hard",
 }
+type TimerMode = "per_question" | "total" | "none"
 
 function mapDifficultyBackendToFrontend(difficulty: string | null | undefined) {
   if (difficulty === "easy") return "Легко" as Difficulty
@@ -349,6 +357,12 @@ export function backendQuizToQuizData(backendQuiz: any): QuizData {
     title: backendQuiz.title ?? "",
     difficulty: mappedDifficulty,
     attempts: Math.max(1, Number(backendQuiz.max_attempts) || 1),
+    timerMode:
+      Math.max(0, Number(backendQuiz.question_time_seconds) || 0) > 0
+        ? "per_question"
+        : Math.max(0, Number(backendQuiz.full_time_seconds) || 0) > 0
+          ? "total"
+          : "none",
     timerPerQuestion: Math.max(0, Number(backendQuiz.question_time_seconds) || 0),
     totalTimer: Math.max(0, Number(backendQuiz.full_time_seconds) || 0) / 60,
     maxScore: 0,
@@ -615,8 +629,13 @@ export default function EditQuiz({
       const updateQuizPayload = {
         title: quiz.title,
         difficulty: mapDifficultyFrontendToBackend(quiz.difficulty),
-        full_time_seconds: Math.round(Number(quiz.totalTimer) * 60),
-        question_time_seconds: Math.round(Number(quiz.timerPerQuestion)),
+        timer_mode: quiz.timerMode,
+        full_time_seconds:
+          quiz.timerMode === "total" ? Math.round(Number(quiz.totalTimer) * 60) : 0,
+        question_time_seconds:
+          quiz.timerMode === "per_question"
+            ? Math.round(Number(quiz.timerPerQuestion))
+            : 0,
         max_attempts: Math.round(Number(quiz.attempts)),
         status,
       }
@@ -864,36 +883,66 @@ export default function EditQuiz({
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="timerPerQuestion">
-                Время на один вопрос (сек)
-              </Label>
-              <Input
-                id="timerPerQuestion"
-                type="number"
-                min={0}
-                value={quiz.timerPerQuestion}
-                onChange={(e) =>
+              <Label htmlFor="timerMode">Режим таймера</Label>
+              <Select
+                value={quiz.timerMode}
+                onValueChange={(value) =>
                   updateSettings({
-                    timerPerQuestion: parseNumberInput(e.target.value, 0, 0),
+                    timerMode: value as TimerMode,
+                    timerPerQuestion:
+                      value === "per_question" ? quiz.timerPerQuestion : 0,
+                    totalTimer: value === "total" ? quiz.totalTimer : 0,
                   })
                 }
-              />
+              >
+                <SelectTrigger id="timerMode" className="w-full">
+                  <SelectValue placeholder="Выберите режим" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="per_question">
+                    Таймер на вопрос (сек)
+                  </SelectItem>
+                  <SelectItem value="total">Общий таймер (мин)</SelectItem>
+                  <SelectItem value="none">Без таймера</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="totalTimer">Общее время (мин)</Label>
-              <Input
-                id="totalTimer"
-                type="number"
-                min={0}
-                value={quiz.totalTimer}
-                onChange={(e) =>
-                  updateSettings({
-                    totalTimer: parseNumberInput(e.target.value, 0, 0),
-                  })
-                }
-              />
-            </div>
+            {quiz.timerMode === "per_question" && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="timerPerQuestion">
+                  Время на один вопрос (секунд)
+                </Label>
+                <Input
+                  id="timerPerQuestion"
+                  type="number"
+                  min={0}
+                  value={quiz.timerPerQuestion}
+                  onChange={(e) =>
+                    updateSettings({
+                      timerPerQuestion: parseNumberInput(e.target.value, 0, 0),
+                    })
+                  }
+                />
+              </div>
+            )}
+
+            {quiz.timerMode === "total" && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="totalTimer">Общее время на викторину (минут)</Label>
+                <Input
+                  id="totalTimer"
+                  type="number"
+                  min={0}
+                  value={quiz.totalTimer}
+                  onChange={(e) =>
+                    updateSettings({
+                      totalTimer: parseNumberInput(e.target.value, 0, 0),
+                    })
+                  }
+                />
+              </div>
+            )}
 
             <div className="flex flex-col gap-2">
               <Label htmlFor="maxScore">Максимальный балл</Label>
@@ -1008,92 +1057,88 @@ export default function EditQuiz({
               <div className="flex flex-col gap-3">
                 <Label>Варианты ответов</Label>
                 {question.options.map((option) => (
-                  <div
-                    key={option.id}
-                    className="flex flex-wrap items-center gap-2 sm:flex-nowrap"
-                  >
-                    {question.type === "multiple" ? (
-                      <Checkbox
-                        id={`correct-${option.id}`}
-                        checked={option.isCorrect}
-                        onCheckedChange={(checked) =>
-                          toggleMultipleCorrect(
-                            question.id,
-                            option.id,
-                            checked === true
-                          )
-                        }
-                        className="shrink-0"
-                      />
-                    ) : (
-                      <input
-                        type="radio"
-                        id={`correct-${option.id}`}
-                        name={`correct-${question.id}`}
-                        checked={option.isCorrect}
-                        onChange={() =>
-                          setSingleCorrect(question.id, option.id)
-                        }
-                        className="size-4 shrink-0 accent-quiz-accent"
-                      />
-                    )}
+                  <div key={option.id} className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                      {question.type === "multiple" ? (
+                        <Checkbox
+                          id={`correct-${option.id}`}
+                          checked={option.isCorrect}
+                          onCheckedChange={(checked) =>
+                            toggleMultipleCorrect(
+                              question.id,
+                              option.id,
+                              checked === true
+                            )
+                          }
+                          className="shrink-0"
+                        />
+                      ) : (
+                        <input
+                          type="radio"
+                          id={`correct-${option.id}`}
+                          name={`correct-${question.id}`}
+                          checked={option.isCorrect}
+                          onChange={() =>
+                            setSingleCorrect(question.id, option.id)
+                          }
+                          className="size-4 shrink-0 accent-quiz-accent"
+                        />
+                      )}
 
-                    <Input
-                      id={`text-${option.id}`}
-                      value={option.text}
-                      onChange={(e) =>
-                        updateOption(question.id, option.id, {
-                          text: e.target.value,
-                        })
-                      }
-                      disabled={question.type === "trueFalse"}
-                      className="min-w-0 flex-1"
-                      placeholder="Текст ответа"
-                    />
-
-                    {option.text.trim() && (
-                      <MathPreview
-                        text={option.text}
-                        className="w-full basis-full"
-                      />
-                    )}
-
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      <Label
-                        htmlFor={`points-${option.id}`}
-                        className="sr-only"
-                      >
-                        Баллы
-                      </Label>
                       <Input
-                        id={`points-${option.id}`}
-                        type="number"
-                        min={0}
-                        value={option.points}
+                        id={`text-${option.id}`}
+                        value={option.text}
                         onChange={(e) =>
                           updateOption(question.id, option.id, {
-                            points: parseNumberInput(e.target.value, 0, 0),
+                            text: e.target.value,
                           })
                         }
-                        className="w-20"
-                        title="Баллы"
+                        disabled={question.type === "trueFalse"}
+                        className="min-w-0 flex-1"
+                        placeholder="Текст ответа"
                       />
-                      <span className="text-xs whitespace-nowrap text-muted-foreground">
-                        балл.
-                      </span>
+
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <Label
+                          htmlFor={`points-${option.id}`}
+                          className="sr-only"
+                        >
+                          Баллы
+                        </Label>
+                        <Input
+                          id={`points-${option.id}`}
+                          type="number"
+                          min={0}
+                          value={option.points}
+                          onChange={(e) =>
+                            updateOption(question.id, option.id, {
+                              points: parseNumberInput(e.target.value, 0, 0),
+                            })
+                          }
+                          className="w-20"
+                          title="Баллы"
+                        />
+                        <span className="text-xs whitespace-nowrap text-muted-foreground">
+                          балл.
+                        </span>
+                      </div>
+
+                      {question.type !== "trueFalse" && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeOption(question.id, option.id)}
+                          className="shrink-0 text-muted-foreground hover:text-destructive"
+                          aria-label="Удалить вариант"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      )}
                     </div>
 
-                    {question.type !== "trueFalse" && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeOption(question.id, option.id)}
-                        className="shrink-0 text-muted-foreground hover:text-destructive"
-                        aria-label="Удалить вариант"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
+                    {option.text.trim() && (
+                      <MathPreview text={option.text} className="sm:ml-6" />
                     )}
                   </div>
                 ))}

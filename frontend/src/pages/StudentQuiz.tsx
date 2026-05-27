@@ -72,6 +72,7 @@ export default function StudentQuiz({
   const [quizSettings, setQuizSettings] = useState({
     title: quizData?.title ?? "Викторина",
     attempts: quizData?.attempts ?? 1,
+    timerMode: quizData?.timerMode ?? "none",
     timerPerQuestion: quizData?.timerPerQuestion ?? 0,
     totalTimer: quizData?.totalTimer ?? 0,
   })
@@ -86,6 +87,7 @@ export default function StudentQuiz({
       title: quizSettings.title,
       difficulty: quizData?.difficulty ?? "Средне",
       attempts: quizSettings.attempts,
+      timerMode: quizSettings.timerMode,
       timerPerQuestion: quizSettings.timerPerQuestion,
       totalTimer: quizSettings.totalTimer,
       maxScore,
@@ -113,6 +115,7 @@ export default function StudentQuiz({
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [questionTimeLeft, setQuestionTimeLeft] = useState(0)
   const [totalTimeLeft, setTotalTimeLeft] = useState(0)
+  const [timeExpired, setTimeExpired] = useState(false)
 
   const hasSubmittedRef = useRef(false)
   const completeSentForAttempt = useRef(0)
@@ -381,11 +384,34 @@ export default function StudentQuiz({
     setAnswers([])
     setElapsedSeconds(0)
     elapsedSecondsRef.current = 0
-    setQuestionTimeLeft(quiz.timerPerQuestion)
-    setTotalTimeLeft(quiz.totalTimer * 60)
+    setTimeExpired(false)
+    setQuestionTimeLeft(quiz.timerMode === "per_question" ? quiz.timerPerQuestion : 0)
+    setTotalTimeLeft(quiz.timerMode === "total" ? quiz.totalTimer * 60 : 0)
     completeSentForAttempt.current = 0
     questionTimeoutHandledRef.current = -1
-  }, [quiz.timerPerQuestion, quiz.totalTimer])
+  }, [quiz.timerMode, quiz.timerPerQuestion, quiz.totalTimer])
+
+  const finishDueToTotalTimeout = useCallback(async () => {
+    setTimeExpired(true)
+    setApiError("")
+
+    try {
+      // Зафиксировать ответы на все оставшиеся вопросы как пустые.
+      const startIdx = questionIndexRef.current
+      for (let i = startIdx; i < questions.length; i += 1) {
+        const q = questions[i]
+        if (!q) continue
+        await submitAnswerToBackend(q, [])
+        hasSubmittedRef.current = true
+      }
+    } catch (err) {
+      setApiError(
+        err instanceof Error ? err.message : "Не удалось сохранить ответы при тайм-ауте"
+      )
+    } finally {
+      await finishQuiz()
+    }
+  }, [questions, submitAnswerToBackend, finishQuiz])
 
   const beginAttempt = async () => {
     if (!routeQuizId) {
@@ -520,13 +546,15 @@ export default function StudentQuiz({
   useEffect(() => {
     if (stage !== "quiz" || quiz.totalTimer <= 0) return
 
+    if (quiz.timerMode !== "total") return
+
     setTotalTimeLeft(quiz.totalTimer * 60)
 
     const id = window.setInterval(() => {
       setTotalTimeLeft((prev) => {
         if (prev <= 1) {
           window.clearInterval(id)
-          void finishQuiz()
+          void finishDueToTotalTimeout()
           return 0
         }
         return prev - 1
@@ -534,10 +562,10 @@ export default function StudentQuiz({
     }, 1000)
 
     return () => window.clearInterval(id)
-  }, [stage, attemptNumber, quiz.totalTimer, finishQuiz])
+  }, [stage, attemptNumber, quiz.totalTimer, quiz.timerMode, finishDueToTotalTimeout])
 
   useEffect(() => {
-    if (stage !== "quiz" || quiz.timerPerQuestion <= 0) return
+    if (stage !== "quiz" || quiz.timerMode !== "per_question" || quiz.timerPerQuestion <= 0) return
 
     questionTimeoutHandledRef.current = -1
     setQuestionTimeLeft(quiz.timerPerQuestion)
@@ -629,14 +657,23 @@ export default function StudentQuiz({
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4 text-center text-lg">
+            {timeExpired && (
+              <p className="text-sm font-medium text-destructive">Время вышло.</p>
+            )}
             <p>
               <span className="font-semibold">Баллы:</span> {score} из{" "}
               {maxScore}
             </p>
-            <p>
-              <span className="font-semibold">Затраченное время:</span>{" "}
-              {formatElapsed(elapsedSeconds)}
-            </p>
+            {quiz.timerMode !== "none" ? (
+              <p>
+                <span className="font-semibold">Затраченное время:</span>{" "}
+                {formatElapsed(elapsedSeconds)}
+              </p>
+            ) : (
+              <p>
+                <span className="font-semibold">Затраченное время:</span> —
+              </p>
+            )}
             <p>
               <span className="font-semibold">Номер попытки:</span>{" "}
               {attemptNumber}
@@ -691,7 +728,7 @@ export default function StudentQuiz({
         <p className="mb-4 text-sm text-destructive">{apiError}</p>
       )}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        {quiz.totalTimer > 0 && (
+        {quiz.timerMode === "total" && quiz.totalTimer > 0 && (
           <div className="rounded-lg border-2 border-quiz-card-border bg-white/90 px-3 py-1.5 text-sm font-medium sm:text-base">
             Общее время: {formatTimer(totalTimeLeft)}
           </div>
@@ -699,7 +736,7 @@ export default function StudentQuiz({
         <p className="text-base font-medium text-muted-foreground sm:text-lg">
           Попытка {attemptNumber} из {quiz.attempts}
         </p>
-        {quiz.timerPerQuestion > 0 && (
+        {quiz.timerMode === "per_question" && quiz.timerPerQuestion > 0 && (
           <div className="rounded-lg border-2 border-quiz-card-border bg-white/90 px-3 py-1.5 text-sm font-medium sm:text-base">
             На вопрос: {formatTimer(questionTimeLeft)}
           </div>
@@ -759,6 +796,17 @@ export default function StudentQuiz({
               onClick={handleNext}
             >
               {isLastQuestion ? "Завершить викторину" : "Следующий вопрос"}
+            </Button>
+          )}
+
+          {quiz.timerMode === "none" && (
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full"
+              onClick={() => void finishQuiz()}
+            >
+              Завершить викторину
             </Button>
           )}
         </CardContent>

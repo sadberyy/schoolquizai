@@ -47,6 +47,11 @@ type MathPreviewProps = {
 export function MathPreview({ text, className }: MathPreviewProps) {
   if (!text.trim()) return null
 
+  // Показываем preview только когда реально есть LaTeX-разметка ($...$ / $$...$$).
+  // Иначе для обычного текста preview превращается в "второе поле" и ломает UX редактора.
+  const hasMath = splitMathSegments(text).some((s) => s.kind === "math")
+  if (!hasMath) return null
+
   return (
     <div
       className={cn(

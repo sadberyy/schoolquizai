@@ -59,6 +59,7 @@ const GRADES = Array.from({ length: 11 }, (_, i) => String(i + 1))
 const DIFFICULTIES = ["Легко", "Средне", "Сложно"] as const
 
 type QuestionType = "single" | "multiple" | "trueFalse"
+type TimerMode = "per_question" | "total" | "none"
 
 const QUESTION_TYPE_OPTIONS: { id: QuestionType; label: string }[] = [
   { id: "single", label: "Одиночный выбор" },
@@ -111,6 +112,7 @@ export default function CreateQuiz() {
     "single",
   ])
   const [difficulty, setDifficulty] = useState("")
+  const [timerMode, setTimerMode] = useState<TimerMode>("per_question")
   const [timerPerQuestion, setTimerPerQuestion] = useState("")
   const [totalTimer, setTotalTimer] = useState("")
   const [attempts, setAttempts] = useState(1)
@@ -194,13 +196,16 @@ export default function CreateQuiz() {
         "max_attempts",
         String(Math.min(100, Math.max(1, attempts)))
       )
-      const questionTimeSeconds = timerPerQuestion.trim()
-        ? Math.max(0, Number(timerPerQuestion) || 0)
-        : 0
+      formData.append("timer_mode", timerMode)
+      const questionTimeSeconds =
+        timerMode === "per_question" && timerPerQuestion.trim()
+          ? Math.max(0, Number(timerPerQuestion) || 0)
+          : 0
+      const fullTimeSeconds =
+        timerMode === "total" && totalTimer.trim()
+          ? Math.round((Number(totalTimer) || 0) * 60)
+          : 0
       formData.append("question_time_seconds", String(questionTimeSeconds))
-      const fullTimeSeconds = totalTimer.trim()
-        ? Math.round((Number(totalTimer) || 0) * 60)
-        : 0
       formData.append("full_time_seconds", String(fullTimeSeconds))
 
       const response = await authFetch(
@@ -316,27 +321,44 @@ export default function CreateQuiz() {
                 </Select>
               </FormField>
 
-              <FormField label="Таймер на вопрос" htmlFor="timerPerQuestion">
-                <Input
-                  id="timerPerQuestion"
-                  type="number"
-                  min={0}
-                  value={timerPerQuestion}
-                  onChange={(e) => setTimerPerQuestion(e.target.value)}
-                  placeholder="Секунды"
-                />
+              <FormField label="Режим таймера">
+                <Select value={timerMode} onValueChange={(v) => setTimerMode(v as TimerMode)}>
+                  <SelectTrigger className="w-full" id="timerMode">
+                    <SelectValue placeholder="Выберите режим" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="per_question">Таймер на вопрос (сек)</SelectItem>
+                    <SelectItem value="total">Общий таймер (мин)</SelectItem>
+                    <SelectItem value="none">Без таймера</SelectItem>
+                  </SelectContent>
+                </Select>
               </FormField>
 
-              <FormField label="Общий таймер" htmlFor="totalTimer">
-                <Input
-                  id="totalTimer"
-                  type="number"
-                  min={0}
-                  value={totalTimer}
-                  onChange={(e) => setTotalTimer(e.target.value)}
-                  placeholder="Минуты"
-                />
-              </FormField>
+              {timerMode === "per_question" && (
+                <FormField label="Время на один вопрос (секунд)" htmlFor="timerPerQuestion">
+                  <Input
+                    id="timerPerQuestion"
+                    type="number"
+                    min={0}
+                    value={timerPerQuestion}
+                    onChange={(e) => setTimerPerQuestion(e.target.value)}
+                    placeholder="Секунды"
+                  />
+                </FormField>
+              )}
+
+              {timerMode === "total" && (
+                <FormField label="Общее время на викторину (минут)" htmlFor="totalTimer">
+                  <Input
+                    id="totalTimer"
+                    type="number"
+                    min={0}
+                    value={totalTimer}
+                    onChange={(e) => setTotalTimer(e.target.value)}
+                    placeholder="Минуты"
+                  />
+                </FormField>
+              )}
 
               <FormField label="Количество попыток" htmlFor="attempts">
                 <Input

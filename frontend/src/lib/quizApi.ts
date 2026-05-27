@@ -89,12 +89,18 @@ export interface ApiQuizMeta {
 }
 
 export function mapQuizMetaFromApi(data: ApiQuizMeta) {
+  const perQuestion = Math.max(0, Number(data.question_time_seconds) || 0)
+  const fullSeconds = Math.max(0, Number(data.full_time_seconds) || 0)
+  const timerMode: "per_question" | "total" | "none" =
+    perQuestion > 0 ? "per_question" : fullSeconds > 0 ? "total" : "none"
+
   return {
     id: String(data.quiz_id),
     title: data.title ?? "Викторина",
     attempts: Math.max(1, Number(data.max_attempts) || 1),
-    timerPerQuestion: Math.max(0, Number(data.question_time_seconds) || 0),
-    totalTimer: Math.max(0, Number(data.full_time_seconds) || 0) / 60,
+    timerMode,
+    timerPerQuestion: perQuestion,
+    totalTimer: fullSeconds / 60,
   }
 }
 
