@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { API_BASE_URL } from "@/lib/api"
+import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
 import { mapResultsFromApi, readApiError } from "@/lib/quizApi"
 import { cn } from "@/lib/utils"
 import type { QuizData } from "@/types/quiz"
@@ -180,8 +181,8 @@ export default function Results({ quizData, results }: ResultsProps) {
 
       try {
         const [quizRes, resultsRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/quiz/${routeQuizId}`),
-          fetch(`${API_BASE_URL}/quiz/${routeQuizId}/results`),
+          authFetch(`${API_BASE_URL}/quiz/${routeQuizId}`),
+          authFetch(`${API_BASE_URL}/quiz/${routeQuizId}/results`),
         ])
 
         if (!quizRes.ok) {
@@ -277,11 +278,12 @@ export default function Results({ quizData, results }: ResultsProps) {
       sort_by: sortKey,
       sort_dir: sortDirection,
     })
-    window.open(
+    void downloadAuthenticatedFile(
       `${API_BASE_URL}/quiz/${routeQuizId}/results/export?${params.toString()}`,
-      "_blank",
-      "noopener,noreferrer"
-    )
+      "results.pdf"
+    ).catch((err) => {
+      setExportError(err instanceof Error ? err.message : "Не удалось скачать PDF")
+    })
   }
 
   const headerButtonClass =

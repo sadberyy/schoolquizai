@@ -14,23 +14,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { authFetch, loginUser, registerUser } from "@/lib/auth"
+import { readApiError } from "@/lib/quizApi"
 import { cn } from "@/lib/utils"
 import { API_BASE_URL } from "@/lib/api"
-
-const MOCK_EMAIL = "teacher@example.com"
-const MOCK_PASSWORD = "123456"
-
-export const MOCK_USER: User = {
-  name: "Елена Сергеевна",
-  email: MOCK_EMAIL,
-}
-
-export const MOCK_QUIZZES: DashboardQuiz[] = [
-  { id: "quiz-1", title: "Викторина по биологии — Клетка" },
-  { id: "quiz-2", title: "История России: XIX век" },
-  { id: "quiz-3", title: "Алгебра: квадратные уравнения" },
-  { id: "quiz-4", title: "География: страны Европы" },
-]
 
 export type { User } from "@/types/user"
 
@@ -52,29 +39,6 @@ const CARD_CLASS =
 const ACCENT_BUTTON_CLASS =
   "border-transparent bg-quiz-accent text-white hover:bg-quiz-accent/90"
 
-async function mockLogin(
-  email: string,
-  password: string
-): Promise<User> {
-  await new Promise((r) => setTimeout(r, 300))
-  if (email === MOCK_EMAIL && password === MOCK_PASSWORD) {
-    return MOCK_USER
-  }
-  throw new Error("Неверный email или пароль")
-}
-
-async function mockRegister(
-  name: string,
-  email: string,
-  _password: string
-): Promise<User> {
-  await new Promise((r) => setTimeout(r, 300))
-  if (email === MOCK_EMAIL) {
-    throw new Error("Этот email уже занят")
-  }
-  return { name: name.trim(), email: email.trim() }
-}
-
 export default function Dashboard({
   user,
   quizzes: quizzesProp,
@@ -82,9 +46,7 @@ export default function Dashboard({
   onLogout,
   onDeleteQuiz,
 }: DashboardProps) {
-  const [quizzes, setQuizzes] = useState<DashboardQuiz[]>(
-    quizzesProp ?? MOCK_QUIZZES
-  )
+  const [quizzes, setQuizzes] = useState<DashboardQuiz[]>(quizzesProp ?? [])
   const [quizzesLoading, setQuizzesLoading] = useState(false)
   const [quizzesError, setQuizzesError] = useState("")
   const [deleteError, setDeleteError] = useState("")
@@ -115,12 +77,10 @@ export default function Dashboard({
       setQuizzesError("")
       setDeleteError("")
       try {
-        const response = await fetch(`${API_BASE_URL}/quiz/list`)
+        const response = await authFetch(`${API_BASE_URL}/quiz/list`)
         if (!response.ok) {
-          const errBody = await response.json().catch(() => ({}))
           throw new Error(
-            (errBody as { detail?: string }).detail ??
-              `Ошибка загрузки викторин: ${response.status}`
+            await readApiError(response, "Ошибка загрузки викторин")
           )
         }
         const data = (await response.json()) as { quizzes?: DashboardQuiz[] }
@@ -149,7 +109,7 @@ export default function Dashboard({
     setIsLoading(true)
 
     try {
-      const loggedIn = await mockLogin(loginEmail.trim(), loginPassword)
+      const loggedIn = await loginUser(loginEmail, loginPassword)
       onLogin(loggedIn)
     } catch (err) {
       setLoginError(
@@ -191,7 +151,7 @@ export default function Dashboard({
     setIsLoading(true)
 
     try {
-      const registered = await mockRegister(
+      const registered = await registerUser(
         registerName,
         registerEmail,
         registerPassword
@@ -220,16 +180,12 @@ export default function Dashboard({
     setDeleteError("")
     setIsDeletingQuizId(quizId)
     try {
-      const response = await fetch(`${API_BASE_URL}/quiz/${quizId}`, {
+      const response = await authFetch(`${API_BASE_URL}/quiz/${quizId}`, {
         method: "DELETE",
       })
 
       if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}))
-        throw new Error(
-          (errBody as { detail?: string }).detail ??
-            `Ошибка удаления: ${response.status}`
-        )
+        throw new Error(await readApiError(response, "Ошибка удаления"))
       }
 
       setQuizzes((prev) => prev.filter((q) => q.id !== quizId))
@@ -294,9 +250,6 @@ export default function Dashboard({
                   >
                     {isLoading ? "Вход…" : "Войти"}
                   </Button>
-                  <p className="text-center text-xs text-muted-foreground">
-                    Демо: {MOCK_EMAIL} / {MOCK_PASSWORD}
-                  </p>
                 </form>
               </TabsContent>
 

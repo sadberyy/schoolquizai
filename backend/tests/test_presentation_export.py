@@ -3,18 +3,30 @@ from types import SimpleNamespace
 
 from pptx import Presentation
 
+from app.services.latex_renderer import render_latex_to_png
 from app.services.presentation_export_service import (
     _PPTX_BODY_MAX_LINES,
     _paginate_body_lines,
     _question_body_paragraphs,
     _simplify_latex_for_export,
+    _split_text_and_formulas,
     _visual_line_count,
+    _build_pdf,
     _build_pptx,
     _latex_skip_omml_use_plaintext,
 )
 
 
 class TestLatexSimplify(unittest.TestCase):
+    def test_cap_symbol_in_simplify_fallback(self):
+        self.assertIn("∩", _simplify_latex_for_export(r"A \cap B"))
+
+    def test_split_display_and_inline(self):
+        parts = _split_text_and_formulas(r"inline $a$ and $$b=c$$")
+        kinds = [(k, d) for k, _c, d in parts]
+        self.assertIn(("math", False), kinds)
+        self.assertIn(("math", True), kinds)
+
     def test_frac_and_dollars(self):
         raw = r"Найдите $\frac{1}{b-a}$ при $x>0$"
         simplified = _simplify_latex_for_export(raw)
@@ -81,6 +93,32 @@ class TestPptxPagination(unittest.TestCase):
         self.assertGreaterEqual(len(prs.slides), 2)
         body = prs.slides[-1].shapes.placeholders[1].text_frame.text
         self.assertIn("C6H5Br", body.replace(" ", ""))
+
+
+class TestPdfLatex(unittest.TestCase):
+    def test_render_cap_png(self):
+        png = render_latex_to_png(r"A \cap B")
+        self.assertIsNotNone(png)
+        self.assertGreater(len(png or b""), 200)
+
+    def test_build_pdf_with_inline_latex(self):
+        quiz = SimpleNamespace(
+            title="Математика",
+            subject="Алгебра",
+            grade="9",
+            difficulty="medium",
+        )
+        q = SimpleNamespace(
+            question_text=r"Чему равно $A \cap B$?",
+            question_type="single_choice",
+            answers=[r"$A \cap B$", r"$A \cup B$", "текст без формул"],
+            correct_answers=[r"$A \cap B$"],
+            explanation=r"Пересечение: $A \cap B$.",
+        )
+        data, _, media_type = _build_pdf(quiz, [q], "teacher")
+        self.assertEqual(media_type, "application/pdf")
+        self.assertGreater(len(data), 500)
+        self.assertTrue(data.startswith(b"%PDF"))
 
 
 if __name__ == "__main__":

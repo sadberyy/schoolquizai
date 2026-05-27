@@ -12,7 +12,7 @@ class MaterialService:
     def extract_text_from_txt(self, content: bytes) -> str:
         return content.decode("utf-8", errors="ignore").strip()
 
-    def extract_text_from_pdf(self, content: bytes) -> List[SourceFragment]:
+    def extract_text_from_pdf(self, filename: str, content: bytes) -> List[SourceFragment]:
         reader = PdfReader(BytesIO(content))
         fragments = []
 
@@ -41,14 +41,14 @@ class MaterialService:
                     SourceFragment(
                         fragment_id=f"pdf_page_{page_idx}_chunk_{chunk_idx}",
                         source_type="pdf",
-                        source_name=f"page_{page_idx}_chunk_{chunk_idx}",
+                        source_name=filename,
                         text=chunk_text
                     )
                 )
 
         return fragments
 
-    def extract_text_from_pptx(self, content: bytes) -> List[SourceFragment]:
+    def extract_text_from_pptx(self, filename: str, content: bytes) -> List[SourceFragment]:
         prs = Presentation(BytesIO(content))
         fragments = []
 
@@ -65,14 +65,14 @@ class MaterialService:
                     SourceFragment(
                         fragment_id=f"pptx_slide_{slide_idx}",
                         source_type="pptx",
-                        source_name=f"slide_{slide_idx}",
+                        source_name=filename,
                         text=slide_text
                     )
                 )
 
         return fragments
 
-    def extract_text_from_docx(self, content: bytes) -> List[SourceFragment]:
+    def extract_text_from_docx(self, filename: str, content: bytes) -> List[SourceFragment]:
         document = Document(BytesIO(content))
         fragments = []
 
@@ -89,7 +89,7 @@ class MaterialService:
                 SourceFragment(
                     fragment_id="docx_1",
                     source_type="docx",
-                    source_name="document",
+                    source_name=filename,
                     text=docx_text
                 )
             )
@@ -116,13 +116,13 @@ class MaterialService:
             return "txt", fragments
 
         if lower_name.endswith(".pdf"):
-            return "pdf", self.extract_text_from_pdf(content)
+            return "pdf", self.extract_text_from_pdf(filename, content)
 
         if lower_name.endswith(".pptx"):
-            return "pptx", self.extract_text_from_pptx(content)
+            return "pptx", self.extract_text_from_pptx(filename, content)
 
         if lower_name.endswith(".docx"):
-            return "docx", self.extract_text_from_docx(content)
+            return "docx", self.extract_text_from_docx(filename, content)
 
         if lower_name.endswith((".png", ".jpg", ".jpeg", ".webp")):
             return "image", []

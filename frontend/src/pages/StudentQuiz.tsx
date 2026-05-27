@@ -6,13 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { API_BASE_URL } from "@/lib/api"
-import { QUESTION_TYPE_HINTS } from "@/constants/quiz";
+import { QUESTION_TYPE_HINTS } from "@/constants/quiz"
 import {
   buildStudentAnswerPayload,
   mapQuizMetaFromApi,
   mapStudentQuestionsFromApi,
   readApiError,
 } from "@/lib/quizApi"
+import { MathText } from "@/components/MathText"
 import { cn } from "@/lib/utils"
 import type { QuizData, QuizQuestion } from "@/types/quiz"
 
@@ -715,7 +716,7 @@ export default function StudentQuiz({
             {QUESTION_TYPE_HINTS[currentQuestion.type]}
           </p>
           <h2 className="text-xl font-semibold leading-snug sm:text-2xl">
-            {currentQuestion.text}
+            <MathText as="span">{currentQuestion.text}</MathText>
           </h2>
 
           <div className="flex flex-col gap-3">
@@ -734,7 +735,7 @@ export default function StudentQuiz({
                       "border-quiz-accent bg-quiz-accent/10 ring-2 ring-quiz-accent/30"
                   )}
                 >
-                  {option.text}
+                  <MathText className="text-left">{option.text}</MathText>
                 </Button>
               )
             })}

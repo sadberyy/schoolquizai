@@ -75,6 +75,17 @@ _LATEX_SYMBOLS = (
     (r"\\sigma", "σ"),
     (r"\\rightarrow", "→"),
     (r"\\leftarrow", "←"),
+    (r"\\cap", "∩"),
+    (r"\\cup", "∪"),
+    (r"\\subset", "⊂"),
+    (r"\\supset", "⊃"),
+    (r"\\subseteq", "⊆"),
+    (r"\\supseteq", "⊇"),
+    (r"\\in", "∈"),
+    (r"\\notin", "∉"),
+    (r"\\emptyset", "∅"),
+    (r"\\forall", "∀"),
+    (r"\\exists", "∃"),
 )
 
 _INLINE_LATEX_RE = re.compile(
@@ -142,7 +153,7 @@ def _set_paragraph_with_math(paragraph, text: str, level: int, font_size_pt: int
         p_elem.append(_make_text_run("", font_size_pt))
         return
 
-    for kind, content in parts:
+    for kind, content, _display in parts:
         if kind == "text":
             if content:
                 p_elem.append(_make_text_run(content, font_size_pt))
@@ -193,25 +204,30 @@ def _make_math_run(omml_element: etree._Element, fallback_text: str) -> etree._E
     return alt
 
 
-def _split_text_and_formulas(text: str) -> list[tuple[str, str]]:
+def _split_text_and_formulas(text: str) -> list[tuple[str, str, bool]]:
     """
-    Возвращает список [(kind, content)], где kind = 'text' | 'math'.
+    Возвращает список [(kind, content, display_mode)], где kind = 'text' | 'math'.
     """
     if not text:
         return []
-    result: list[tuple[str, str]] = []
+    result: list[tuple[str, str, bool]] = []
     pos = 0
     for m in _INLINE_LATEX_RE.finditer(text):
         if m.start() > pos:
-            result.append(("text", text[pos:m.start()]))
+            result.append(("text", text[pos:m.start()], False))
         raw = m.group(0)
-        for opener, closer in (("$$", "$$"), ("$", "$"), (r"\(", r"\)"), (r"\[", r"\]")):
+        for opener, closer, display in (
+            ("$$", "$$", True),
+            ("$", "$", False),
+            (r"\(", r"\)", False),
+            (r"\[", r"\]", True),
+        ):
             if raw.startswith(opener) and raw.endswith(closer):
-                result.append(("math", raw[len(opener):-len(closer)].strip()))
+                result.append(("math", raw[len(opener):-len(closer)].strip(), display))
                 break
         pos = m.end()
     if pos < len(text):
-        result.append(("text", text[pos:]))
+        result.append(("text", text[pos:], False))
     return result
 
 
@@ -489,32 +505,36 @@ def _clean_latex_text(text: str) -> str:
     return text
 
 
-def _draw_inline_text(c: canvas.Canvas, text: str, x: float, y: float, max_width: float,
-                      font_name: str = "DejaVu", font_size: int = 11, line_height: int = 14) -> float:
+def _draw_inline_text(
+    c: canvas.Canvas,
+    text: str,
+    x: float,
+    y: float,
+    max_width: float,
+    font_name: str = "DejaVu",
+    font_size: int = 11,
+    line_height: int = 14,
+) -> float:
     """
-    Рисует текст с inline LaTeX-формулами.
-    Сначала рендерит все LaTeX-формулы как изображения,
-    затем выводит оставшийся текст БЕЗ формул.
+    Рисует текст с inline LaTeX-формулами ($...$).
+    Логика масштабирования и вставки PNG — как в рабочем export-варианте.
     """
     text = _clean_latex_text(text or "")
 
-    latex_parts = re.findall(r'\$(.+?)\$', text)
-
-    # удаляем все latex-формулы из текста
-    clean_text = re.sub(r'\$.+?\$', '<<<LATEX_PLACEHOLDER>>>', text)
-    text_parts = clean_text.split('<<<LATEX_PLACEHOLDER>>>')
+    latex_parts = re.findall(r"\$(.+?)\$", text)
+    clean_text = re.sub(r"\$.+?\$", "<<<LATEX_PLACEHOLDER>>>", text)
+    text_parts = clean_text.split("<<<LATEX_PLACEHOLDER>>>")
 
     current_x = x
     current_y = y
     latex_index = 0
 
     for i, text_part in enumerate(text_parts):
-        # текстовая часть
         if text_part:
-            words = text_part.split(' ')
+            words = text_part.split(" ")
             for j, word in enumerate(words):
                 if j > 0:
-                    word = ' ' + word
+                    word = " " + word
 
                 c.setFont(font_name, font_size)
                 width = c.stringWidth(word, font_name, font_size)
@@ -546,7 +566,7 @@ def _draw_inline_text(c: canvas.Canvas, text: str, x: float, y: float, max_width
 
             tmp_path = None
             try:
-                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
                     tmp.write(img_bytes)
                     tmp_path = tmp.name
 
@@ -561,11 +581,17 @@ def _draw_inline_text(c: canvas.Canvas, text: str, x: float, y: float, max_width
                     current_y -= line_height
                     current_x = x
 
-                c.drawImage(tmp_path, current_x, current_y - h + (font_size * 0.9),
-                            width=w, height=h)
+                c.drawImage(
+                    tmp_path,
+                    current_x,
+                    current_y - h + (font_size * 0.9),
+                    width=w,
+                    height=h,
+                )
                 current_x += w + 2
             except Exception as e:
                 import logging
+
                 logging.warning("Failed to render LaTeX %r: %s", latex, e)
                 fb2 = _latex_plaintext_for_slide(latex) or latex or "?"
                 c.setFont(font_name, font_size)

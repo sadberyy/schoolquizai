@@ -12,6 +12,8 @@ from app.services.prompt_service import build_quiz_prompt, build_quiz_fix_prompt
 from app.services.material_service import material_service
 from app.core.logger import logger
 
+AI_RESPONSE_PARSE_ERROR = "Ошибка разбора ответа ИИ, попробуйте снова"
+
 
 class QuizService:
     """
@@ -69,9 +71,12 @@ class QuizService:
         raw_text = raw_text.strip()
     
         if not raw_text:
-            raise ValueError("Пустой JSON после обработки")
-    
-        return json.loads(raw_text)
+            raise ValueError(AI_RESPONSE_PARSE_ERROR)
+
+        try:
+            return json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            raise ValueError(AI_RESPONSE_PARSE_ERROR) from e
 
 
     def _enrich_questions_with_source_fragments(

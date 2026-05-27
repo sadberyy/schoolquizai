@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useParams } from "react-router-dom"
 import { Check, Pause, Play, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -14,8 +14,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { API_BASE_URL } from "@/lib/api"
+import { authFetch } from "@/lib/auth"
+import { readApiError } from "@/lib/quizApi"
+import { MathText } from "@/components/MathText"
 import { cn } from "@/lib/utils"
-import { MOCK_QUIZ_DATA } from "@/pages/EditQuiz"
+import { backendQuizToQuizData } from "@/pages/EditQuiz"
 import type { QuestionType, QuizData, QuizQuestion } from "@/types/quiz"
 
 export type { QuizData } from "@/types/quiz"
@@ -38,11 +42,22 @@ const ACCENT_BUTTON_CLASS =
 const NEXT_BUTTON_CLASS =
   "h-12 border-2 border-quiz-card-border bg-quiz-card-border text-base text-white hover:bg-quiz-card-border/90 sm:h-14 sm:text-lg"
 
+const EMPTY_QUIZ: QuizData = {
+  id: "",
+  title: "",
+  difficulty: "Средне",
+  attempts: 1,
+  timerPerQuestion: 0,
+  totalTimer: 0,
+  maxScore: 0,
+  questions: [],
+}
+
 function normalizeQuizData(data: QuizData): QuizData {
   return {
     ...data,
     title: data.title ?? "Викторина",
-    questions: data.questions?.length ? data.questions : MOCK_QUIZ_DATA.questions,
+    questions: data.questions ?? [],
   }
 }
 
@@ -57,10 +72,63 @@ function getCorrectAnswersText(question: QuizQuestion): string {
   return correct.length > 0 ? correct.join(", ") : "—"
 }
 
-export default function TeacherShow({ quizData }: TeacherShowProps) {
+export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps) {
+  const { quizId } = useParams<{ quizId: string }>()
+  const [loadedQuiz, setLoadedQuiz] = useState<QuizData | null>(
+    quizDataProp ?? null
+  )
+  const [isLoadingQuiz, setIsLoadingQuiz] = useState(
+    !quizDataProp && Boolean(quizId)
+  )
+  const [loadError, setLoadError] = useState("")
+
+  useEffect(() => {
+    if (quizDataProp) {
+      setLoadedQuiz(quizDataProp)
+      return
+    }
+    if (!quizId) {
+      setLoadError("Не указан идентификатор викторины")
+      setIsLoadingQuiz(false)
+      return
+    }
+
+    let ignore = false
+
+    async function loadQuiz() {
+      setIsLoadingQuiz(true)
+      setLoadError("")
+      try {
+        const response = await authFetch(`${API_BASE_URL}/quiz/${quizId}`)
+        if (!response.ok) {
+          throw new Error(
+            await readApiError(response, "Ошибка загрузки викторины")
+          )
+        }
+        const data = (await response.json()) as Record<string, unknown>
+        if (!ignore) setLoadedQuiz(backendQuizToQuizData(data))
+      } catch (err) {
+        if (ignore) return
+        setLoadError(
+          err instanceof Error
+            ? err.message
+            : "Не удалось загрузить викторину"
+        )
+      } finally {
+        if (!ignore) setIsLoadingQuiz(false)
+      }
+    }
+
+    void loadQuiz()
+
+    return () => {
+      ignore = true
+    }
+  }, [quizId, quizDataProp])
+
   const quiz = useMemo(
-    () => normalizeQuizData(quizData ?? MOCK_QUIZ_DATA),
-    [quizData]
+    () => normalizeQuizData(loadedQuiz ?? EMPTY_QUIZ),
+    [loadedQuiz]
   )
 
   const [stage, setStage] = useState<TeacherStage>("setup")
@@ -73,6 +141,15 @@ export default function TeacherShow({ quizData }: TeacherShowProps) {
   const [isRevealed, setIsRevealed] = useState(false)
   const [timeLeft, setTimeLeft] = useState(20)
   const [isPaused, setIsPaused] = useState(false)
+
+  useEffect(() => {
+    if (!loadedQuiz?.timerPerQuestion) return
+    const seconds = Math.max(10, Number(loadedQuiz.timerPerQuestion) || 0)
+    if (seconds > 0) {
+      setQuestionTimerSeconds(seconds)
+      setTimeLeft(seconds)
+    }
+  }, [loadedQuiz?.timerPerQuestion])
 
   const totalQuestions = quiz.questions.length
   const currentQuestion = quiz.questions[questionIndex]
@@ -187,6 +264,27 @@ export default function TeacherShow({ quizData }: TeacherShowProps) {
     }
 
     return "min-h-16 w-full justify-start rounded-xl border-2 border-quiz-card-border/50 bg-white/80 px-6 py-4 text-left text-lg font-medium text-muted-foreground"
+  }
+
+  if (isLoadingQuiz) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-8">
+        <p className="text-lg text-muted-foreground">Загрузка викторины...</p>
+      </div>
+    )
+  }
+
+  if (loadError || !loadedQuiz) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8">
+        <p className="text-lg text-destructive">
+          {loadError || "Викторина не найдена"}
+        </p>
+        <Button asChild variant="outline">
+          <Link to="/">К списку викторин</Link>
+        </Button>
+      </div>
+    )
   }
 
   if (stage === "setup") {
@@ -321,9 +419,11 @@ export default function TeacherShow({ quizData }: TeacherShowProps) {
                       key={q.id}
                       className="border-b border-quiz-card-border/40 hover:bg-muted/20"
                     >
-                      <td className="px-4 py-4 sm:px-6">{`${i + 1}. ${q.text}`}</td>
+                      <td className="px-4 py-4 sm:px-6">
+                        <MathText>{`${i + 1}. ${q.text}`}</MathText>
+                      </td>
                       <td className="px-4 py-4 font-medium text-green-700 sm:px-6">
-                        {getCorrectAnswersText(q)}
+                        <MathText>{getCorrectAnswersText(q)}</MathText>
                       </td>
                     </tr>
                   ))}
@@ -371,7 +471,7 @@ export default function TeacherShow({ quizData }: TeacherShowProps) {
                   {QUESTION_TYPE_HINTS[currentQuestion.type]}
                 </p>
                 <h2 className="mt-3 text-xl font-semibold leading-snug sm:text-2xl">
-                  {currentQuestion.text}
+                  <MathText as="span">{currentQuestion.text}</MathText>
                 </h2>
               </div>
 
@@ -411,7 +511,7 @@ export default function TeacherShow({ quizData }: TeacherShowProps) {
                     className={getOptionClassName(option.id, option.isCorrect)}
                   >
                     <span className="flex w-full items-center justify-between gap-4">
-                      <span>{option.text}</span>
+                      <MathText className="text-left">{option.text}</MathText>
                       <span className="flex shrink-0 items-center gap-2">
                         {showCheck && <Check className="size-6 text-green-700" aria-hidden />}
                         {showCross && <X className="size-6 text-red-700" aria-hidden />}
@@ -439,7 +539,9 @@ export default function TeacherShow({ quizData }: TeacherShowProps) {
                   <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     Пояснение
                   </p>
-                  <p className="text-lg leading-relaxed">{currentQuestion.explanation}</p>
+                  <MathText as="p" className="text-lg">
+                    {currentQuestion.explanation}
+                  </MathText>
                 </CardContent>
               </Card>
             )}

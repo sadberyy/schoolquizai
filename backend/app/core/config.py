@@ -15,5 +15,9 @@ class Settings:
     )
 
     FRONTEND_ORIGIN: str = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "change-me-in-production")
+    ACCESS_TOKEN_TTL_SECONDS: int = int(
+        os.getenv("ACCESS_TOKEN_TTL_SECONDS", str(7 * 24 * 60 * 60))
+    )
 
 settings = Settings()

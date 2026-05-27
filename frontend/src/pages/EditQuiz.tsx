@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { Plus, Trash2 } from "lucide-react"
 
+import { MathPreview } from "@/components/MathText"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -17,6 +18,8 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { API_BASE_URL, STUDENT_QUIZ_BASE_URL } from "@/lib/api"
+import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
+import { readApiError } from "@/lib/quizApi"
 import {
   DIFFICULTIES,
   type Difficulty,
@@ -318,7 +321,7 @@ function buildOptionsFromBackendAnswers(params: {
   }))
 }
 
-function backendQuizToQuizData(backendQuiz: any): QuizData {
+export function backendQuizToQuizData(backendQuiz: any): QuizData {
   const mappedDifficulty = mapDifficultyBackendToFrontend(backendQuiz.difficulty)
 
   const questions: QuizQuestion[] = (backendQuiz.questions ?? []).map(
@@ -413,12 +416,10 @@ export default function EditQuiz({
       setSaveError("")
 
       try {
-        const response = await fetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`)
+        const response = await authFetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`)
         if (!response.ok) {
-          const errBody = await response.json().catch(() => ({}))
           throw new Error(
-            (errBody as { detail?: string }).detail ??
-              `Ошибка загрузки викторины: ${response.status}`
+            await readApiError(response, "Ошибка загрузки викторины")
           )
         }
 
@@ -620,7 +621,7 @@ export default function EditQuiz({
         status,
       }
 
-      const updateQuizRes = await fetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`, {
+      const updateQuizRes = await authFetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updateQuizPayload),
@@ -642,7 +643,7 @@ export default function EditQuiz({
       )
 
       for (const questionId of deletedQuestionIds) {
-        const deleteRes = await fetch(
+        const deleteRes = await authFetch(
           `${API_BASE_URL}/quiz/${resolvedQuizId}/questions/${questionId}`,
           { method: "DELETE" }
         )
@@ -664,7 +665,7 @@ export default function EditQuiz({
             orderIdx
           )
 
-          const putRes = await fetch(
+          const putRes = await authFetch(
             `${API_BASE_URL}/quiz/${resolvedQuizId}/questions/${q.id}`,
             {
               method: "PUT",
@@ -683,7 +684,7 @@ export default function EditQuiz({
         } else {
           const createPayload = frontendQuestionToBackendCreatePayload(q)
 
-          const postRes = await fetch(
+          const postRes = await authFetch(
             `${API_BASE_URL}/quiz/${resolvedQuizId}/questions`,
             {
               method: "POST",
@@ -713,7 +714,7 @@ export default function EditQuiz({
             orderIdx
           )
 
-          const putRes = await fetch(
+          const putRes = await authFetch(
             `${API_BASE_URL}/quiz/${resolvedQuizId}/questions/${created.question_id}`,
             {
               method: "PUT",
@@ -733,7 +734,7 @@ export default function EditQuiz({
       }
 
       // Обновляем состояние после синхронизации (чтобы получить реальные question_id)
-      const refreshedRes = await fetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`)
+      const refreshedRes = await authFetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`)
       if (!refreshedRes.ok) {
         const errBody = await refreshedRes.json().catch(() => ({}))
         throw new Error(
@@ -778,19 +779,21 @@ export default function EditQuiz({
   }
 
   const handleDownloadPdf = () => {
-    window.open(
+    void downloadAuthenticatedFile(
       `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pdf`,
-      "_blank",
-      "noopener,noreferrer"
-    )
+      "quiz.pdf"
+    ).catch((err) => {
+      setSaveError(err instanceof Error ? err.message : "Не удалось скачать PDF")
+    })
   }
 
   const handleDownloadPptx = () => {
-    window.open(
+    void downloadAuthenticatedFile(
       `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pptx`,
-      "_blank",
-      "noopener,noreferrer"
-    )
+      "quiz.pptx"
+    ).catch((err) => {
+      setSaveError(err instanceof Error ? err.message : "Не удалось скачать PPTX")
+    })
   }
 
   const parseNumberInput = (value: string, min: number, fallback: number) =>
@@ -987,6 +990,7 @@ export default function EditQuiz({
                   }
                   rows={3}
                 />
+                <MathPreview text={question.text} />
               </div>
 
               <div className="flex flex-col gap-2">
@@ -1046,6 +1050,13 @@ export default function EditQuiz({
                       className="min-w-0 flex-1"
                       placeholder="Текст ответа"
                     />
+
+                    {option.text.trim() && (
+                      <MathPreview
+                        text={option.text}
+                        className="w-full basis-full"
+                      />
+                    )}
 
                     <div className="flex shrink-0 items-center gap-1.5">
                       <Label
@@ -1115,6 +1126,7 @@ export default function EditQuiz({
                   }
                   rows={2}
                 />
+                <MathPreview text={question.explanation} />
               </div>
             </CardContent>
           </Card>

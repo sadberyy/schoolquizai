@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { API_BASE_URL } from "@/lib/api"
+import { authFetch } from "@/lib/auth"
+import { readApiError } from "@/lib/quizApi"
 
 const SUBJECTS = [
   "Математика",
@@ -188,16 +190,27 @@ export default function CreateQuiz() {
         formData.append("image", imageFile)
       }
 
-      const response = await fetch(
+      formData.append(
+        "max_attempts",
+        String(Math.min(100, Math.max(1, attempts)))
+      )
+      const questionTimeSeconds = timerPerQuestion.trim()
+        ? Math.max(0, Number(timerPerQuestion) || 0)
+        : 0
+      formData.append("question_time_seconds", String(questionTimeSeconds))
+      const fullTimeSeconds = totalTimer.trim()
+        ? Math.round((Number(totalTimer) || 0) * 60)
+        : 0
+      formData.append("full_time_seconds", String(fullTimeSeconds))
+
+      const response = await authFetch(
         `${API_BASE_URL}/quiz/generate-from-materials`,
         { method: "POST", body: formData }
       )
 
       if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}))
         throw new Error(
-          (errBody as { detail?: string }).detail ??
-            `Ошибка генерации викторины: ${response.status}`
+          await readApiError(response, "Ошибка генерации викторины")
         )
       }
 
