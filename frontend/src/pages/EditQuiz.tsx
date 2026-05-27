@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
-import { API_BASE_URL, STUDENT_QUIZ_BASE_URL } from "@/lib/api"
+import { API_BASE_URL, getStudentQuizBaseUrl } from "@/lib/api"
 import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
 import { buildDownloadFilename } from "@/lib/downloadFilename"
 import { readApiError } from "@/lib/quizApi"
@@ -792,7 +792,7 @@ export default function EditQuiz({
   const handlePublish = async () => {
     await syncQuizWithBackend("published")
 
-    const link = `${STUDENT_QUIZ_BASE_URL}/${resolvedQuizId}`
+    const link = `${getStudentQuizBaseUrl()}/${resolvedQuizId}`
     try {
       await navigator.clipboard.writeText(link)
     } catch {
