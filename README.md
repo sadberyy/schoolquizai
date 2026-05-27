@@ -150,6 +150,11 @@ VITE_API_URL=http://localhost:8000
 ## 📌 Примечание
 
 Для корректной работы backend необходимо:
+- заранее получить доступ к **GigaChat API** и создать проект в личном кабинете **Sber Developers / Studio**;
+- получить **ключ авторизации** для GigaChat API и указать его в переменной `GIGACHAT_AUTH_KEY`;
 - указать актуальные значения переменных в `.env`;
 - иметь сертификат для `GigaChat`, если он используется в текущей конфигурации;
 - запускать frontend и backend в двух отдельных терминалах при локальной разработке.
+
+Получить доступ к GigaChat API можно через платформу Sber Developers:  
+[https://developers.sber.ru/portal/products/gigachat-api](https://developers.sber.ru/portal/products/gigachat-api)
