@@ -48,7 +48,16 @@ def render_latex_to_png(latex: str) -> bytes | None:
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-gpu',
+                    '--disable-dev-shm-usage', # использует /tmp, а не /dev/shm
+                    '--no-sandbox', #отключает изоляцию процессов
+                    '--single-process', # запускает всё в одном процессе
+                    '--max_old_space_size=64', # ограничение памяти для JS-движка
+                ]
+            )
             try:
                 page = browser.new_page(viewport={"width": 800, "height": 100})
                 page.set_content(html, wait_until="networkidle", timeout=90_000)
