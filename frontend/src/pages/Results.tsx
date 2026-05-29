@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpDown, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -167,6 +167,7 @@ export default function Results({ quizData, results }: ResultsProps) {
   const [isLoading, setIsLoading] = useState(Boolean(routeQuizId && !results))
   const [loadError, setLoadError] = useState("")
   const [exportError, setExportError] = useState("")
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
 
   const [sortKey, setSortKey] = useState<SortKey>("score")
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
@@ -268,23 +269,28 @@ export default function Results({ quizData, results }: ResultsProps) {
     }
   }
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (!routeQuizId) {
       setExportError("Не указан идентификатор викторины")
       return
     }
 
     setExportError("")
+    setIsExportingPdf(true)
     const params = new URLSearchParams({
       sort_by: sortKey,
       sort_dir: sortDirection,
     })
-    void downloadAuthenticatedFile(
-      `${API_BASE_URL}/quiz/${routeQuizId}/results/export?${params.toString()}`,
-      buildDownloadFilename(quizTitle, "pdf", { suffix: "_результаты" })
-    ).catch((err) => {
+    try {
+      await downloadAuthenticatedFile(
+        `${API_BASE_URL}/quiz/${routeQuizId}/results/export?${params.toString()}`,
+        buildDownloadFilename(quizTitle, "pdf", { suffix: "_результаты" })
+      )
+    } catch (err) {
       setExportError(err instanceof Error ? err.message : "Не удалось скачать PDF")
-    })
+    } finally {
+      setIsExportingPdf(false)
+    }
   }
 
   const headerButtonClass =
@@ -305,6 +311,11 @@ export default function Results({ quizData, results }: ResultsProps) {
       {exportError && (
         <p className="mb-4 text-sm text-destructive">{exportError}</p>
       )}
+      {isExportingPdf && (
+        <p className="mb-4 text-sm text-muted-foreground" role="status" aria-live="polite">
+          Идёт формирование PDF с результатами… Подождите, пожалуйста.
+        </p>
+      )}
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
@@ -316,10 +327,18 @@ export default function Results({ quizData, results }: ResultsProps) {
         <Button
           type="button"
           variant="secondary"
-          onClick={handleDownloadPdf}
+          onClick={() => void handleDownloadPdf()}
+          disabled={isLoading || isExportingPdf}
           className="shrink-0"
         >
-          Скачать PDF
+          {isExportingPdf ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              Формирование PDF…
+            </>
+          ) : (
+            "Скачать PDF"
+          )}
         </Button>
       </div>
 

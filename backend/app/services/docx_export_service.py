@@ -6,11 +6,17 @@ from docx import Document
 from docx.shared import Pt
 
 from app.db.models import Question, Quiz
-from app.services.latex_renderer import render_latex_to_png, latex_render_batch
+from app.services.formula_export import (
+    EXPORT_FONT_BODY_PT,
+    layout_rich_text,
+    pptx_font_size_pt,
+)
+from app.services.latex_renderer import latex_render_batch
 from app.services.presentation_export_service import (
+    _dejavu_measure_text,
     _question_body_paragraphs,
+    _resolve_formula_segment,
     _safe_filename,
-    _split_text_and_formulas,
     load_quiz_with_questions,
 )
 
@@ -31,26 +37,36 @@ def _quiz_subtitle(quiz: Quiz) -> str:
     return " · ".join(parts)
 
 
-def _fill_paragraph_with_content(paragraph, text: str) -> None:
-    parts = _split_text_and_formulas(text or "")
-    if not parts:
-        return
+def _add_rich_text_block(doc: Document, text: str, *, level: int = 0, bullet: bool = False) -> None:
+    font_size_pt = pptx_font_size_pt(level) if level else EXPORT_FONT_BODY_PT
+    max_width_pt = 450.0
 
-    for kind, content, display in parts:
-        if kind == "text":
-            if content:
-                paragraph.add_run(content)
-            continue
+    layout = layout_rich_text(
+        text or "",
+        max_width_pt,
+        font_size_pt,
+        measure_text=lambda token, fs=font_size_pt: _dejavu_measure_text(token, fs),
+        resolve_formula=lambda latex, display, fs=font_size_pt: _resolve_formula_segment(
+            latex, display, fs,
+        ),
+    )
 
-        png = render_latex_to_png(content)
-        if png:
-            run = paragraph.add_run()
-            try:
-                run.add_picture(BytesIO(png), height=Pt(18 if display else 14))
-            except Exception:
-                paragraph.add_run(content)
-        else:
-            paragraph.add_run(content)
+    for line in layout.lines:
+        style = "List Bullet" if bullet and level > 0 else None
+        paragraph = doc.add_paragraph(style=style)
+        for seg in line.segments:
+            if seg.kind in {"text", "fallback"}:
+                if seg.content:
+                    paragraph.add_run(seg.content)
+                continue
+            if seg.png_bytes and seg.formula_layout:
+                run = paragraph.add_run()
+                try:
+                    run.add_picture(BytesIO(seg.png_bytes), height=Pt(seg.formula_layout.height_pt))
+                except Exception:
+                    paragraph.add_run(seg.content)
+            else:
+                paragraph.add_run(seg.content)
 
 
 def build_quiz_docx(
@@ -68,8 +84,7 @@ def build_quiz_docx(
     for index, question in enumerate(questions, start=1):
         doc.add_heading(f"Вопрос {index}", level=1)
         for text, level in _question_body_paragraphs(question, mode):
-            paragraph = doc.add_paragraph(style="List Bullet" if level > 0 else None)
-            _fill_paragraph_with_content(paragraph, text)
+            _add_rich_text_block(doc, text, level=level, bullet=False)
 
     buffer = BytesIO()
     doc.save(buffer)

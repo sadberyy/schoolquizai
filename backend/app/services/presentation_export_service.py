@@ -10,10 +10,9 @@ from typing import Literal
 from fastapi import HTTPException
 from lxml import etree
 from pptx import Presentation
-from pptx.enum.text import MSO_AUTO_SIZE
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE
 from pptx.oxml.ns import qn
 from pptx.util import Pt
-from PIL import Image as PILImage
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -24,6 +23,20 @@ from reportlab.pdfgen import canvas
 import matplotlib
 matplotlib.use('Agg')
 
+from app.services.formula_export import (
+    EXPORT_BLOCK_GAP_PT,
+    EXPORT_BLOCK_GAP_PPTX_PT,
+    EXPORT_FONT_BODY_PT,
+    EXPORT_FONT_LINE_HEIGHT_PT,
+    EXPORT_LINE_GAP_PT,
+    EXPORT_LINE_GAP_PPTX_PT,
+    LayoutLine,
+    compute_formula_layout,
+    layout_rich_text,
+    next_baseline_after_block,
+    pptx_font_size_pt,
+    split_text_and_formulas as _split_text_and_formulas,
+)
 from app.services.latex_renderer import render_latex_to_png, latex_render_batch
 from app.db.database import get_db_session
 from app.db.models import Question, Quiz
@@ -49,10 +62,12 @@ _TYPE_LABELS = {
 
 _FONT_REGISTERED = False
 
-# Эмпирические константы под стандартный layout 1 (Title and Content) 16:9
-_PPTX_BODY_WIDTH_CHARS = 60   # ~ сколько символов умещается в строку плейсхолдера при 18pt
+_PPTX_ROW_HEIGHT_PT = 24.0  # ~14 pt строка + средний gap для оценки пагинации
+_PPTX_BODY_WIDTH_CHARS = 60
 _PPTX_BODY_MAX_LINES   = 12   # сколько визуальных строк помещается по высоте при 18pt
 _PPTX_WRAP_CHARS = 78
+_PPTX_FONT_NAME = "Arial"
+_PPTX_FONT_REGISTERED = False
 _LATEX_MARKER_RE = re.compile(
     r"\\frac|\\sqrt|\$\$?|\\\[|\\\]|\\[a-zA-Z]{2,}"
 )
@@ -86,11 +101,6 @@ _LATEX_SYMBOLS = (
     (r"\\emptyset", "∅"),
     (r"\\forall", "∀"),
     (r"\\exists", "∃"),
-)
-
-_INLINE_LATEX_RE = re.compile(
-    r"(\$\$.+?\$\$|\$.+?\$|\\\(.+?\\\)|\\\[.+?\\\])",
-    re.DOTALL,
 )
 
 _A_NS   = "http://schemas.openxmlformats.org/drawingml/2006/main"
@@ -134,12 +144,10 @@ def _make_text_run(text: str, font_size_pt: int = 14) -> etree._Element:
 
 
 class _PptxFormulaLayout:
-    """Размещает PNG-формулы на слайде через add_picture (не wp:inline из Word)."""
+    """Размещает текст и PNG-формулы на слайде с абсолютными координатами."""
 
-    _TEXT_LINE_PT = 20
     _LEVEL_INDENT_PT = 18
     _TOP_PADDING_PT = 6
-    _FORMULA_GAP_PT = 4
 
     def __init__(self, slide) -> None:
         placeholder = slide.shapes.placeholders[1]
@@ -147,58 +155,218 @@ class _PptxFormulaLayout:
         self.body_left = placeholder.left
         self.body_top = placeholder.top
 
-    def _level_indent(self, level: int) -> int:
+    def _level_indent(self, level: int):
         return Pt(level * self._LEVEL_INDENT_PT)
 
     @staticmethod
-    def _formula_height_pt(png_bytes: bytes, font_size_pt: int) -> float:
-        """Высота PNG в пунктах — та же формула, что в PDF (_draw_inline_text)."""
-        img = PILImage.open(BytesIO(png_bytes))
-        img_h = img.size[1]
-        if img_h <= 0:
-            return float(font_size_pt)
-        scale = (font_size_pt * 1.5) / img_h
-        return img_h * scale * 0.75
+    def _configure_text_frame(text_frame) -> None:
+        text_frame.word_wrap = False
+        text_frame.auto_size = MSO_AUTO_SIZE.NONE
+        text_frame.margin_left = 0
+        text_frame.margin_right = 0
+        text_frame.margin_top = 0
+        text_frame.margin_bottom = 0
+        text_frame.vertical_anchor = MSO_ANCHOR.TOP
 
-    def add_formula_picture(
+    def _add_text_box(
         self,
-        png_bytes: bytes,
-        top_offset,
-        level: int,
-        font_size_pt: int,
+        left,
+        top,
+        width_pt: float,
+        height_pt: float,
+        text: str,
+        font_size_pt: float,
     ) -> None:
-        img = PILImage.open(BytesIO(png_bytes))
-        img_w, img_h = img.size
-        if img_h <= 0:
+        if not text:
             return
+        box = self.slide.shapes.add_textbox(
+            left,
+            top,
+            Pt(max(width_pt + 4, 12)),
+            Pt(max(height_pt, font_size_pt + 2)),
+        )
+        text_frame = box.text_frame
+        self._configure_text_frame(text_frame)
+        paragraph = text_frame.paragraphs[0]
+        paragraph.text = text
+        paragraph.font.size = Pt(font_size_pt)
+        paragraph.font.name = _PPTX_FONT_NAME
 
-        scale = (font_size_pt * 1.5) / img_h
-        height = Pt(img_h * scale * 0.75)
-        left = self.body_left + self._level_indent(level)
-        top = self.body_top + top_offset + Pt(2)
-        self.slide.shapes.add_picture(BytesIO(png_bytes), left, top, height=height)
+    def render_absolute_line(
+        self,
+        line: LayoutLine,
+        level: int,
+        font_size_pt: float,
+        y_offset_pt: float,
+    ) -> None:
+        indent = self._level_indent(level)
+        line_top = self.body_top + Pt(y_offset_pt)
+        baseline_top = line.ascent_pt
+
+        index = 0
+        while index < len(line.segments):
+            seg = line.segments[index]
+            if seg.kind in {"text", "fallback"}:
+                text_parts: list[str] = []
+                x_pt = seg.x_pt
+                width_pt = 0.0
+                max_ascent = seg.ascent_pt
+                while index < len(line.segments):
+                    current = line.segments[index]
+                    if current.kind not in {"text", "fallback"}:
+                        break
+                    if current.content:
+                        text_parts.append(current.content)
+                        width_pt += current.width_pt
+                        max_ascent = max(max_ascent, current.ascent_pt)
+                    index += 1
+                text = "".join(text_parts)
+                if text:
+                    text_top = line_top + Pt(baseline_top - max_ascent)
+                    self._add_text_box(
+                        self.body_left + indent + Pt(x_pt),
+                        text_top,
+                        width_pt,
+                        max_ascent + font_size_pt * 0.28,
+                        text,
+                        font_size_pt,
+                    )
+                continue
+
+            if seg.kind == "math" and seg.png_bytes and seg.formula_layout:
+                fl = seg.formula_layout
+                formula_top = line_top + Pt(baseline_top - fl.baseline_offset_pt)
+                self.slide.shapes.add_picture(
+                    BytesIO(seg.png_bytes),
+                    self.body_left + indent + Pt(seg.x_pt),
+                    formula_top,
+                    height=Pt(fl.height_pt),
+                )
+            index += 1
 
 
-def _expand_pptx_body_lines(
-    lines: list[tuple[str, int]],
-) -> list[tuple[str, int, str | None]]:
-    """Текст и каждая формула — отдельная строка слайда (без inline-позиционирования)."""
-    expanded: list[tuple[str, int, str | None]] = []
-    for text, level in lines:
-        parts = _split_text_and_formulas(text or "")
-        if not parts:
-            expanded.append(("", level, None))
-            continue
-        for kind, content, _display in parts:
-            if kind == "text":
-                if content.strip():
-                    expanded.append((content, level, None))
-            elif content.strip():
-                expanded.append(("", level, content.strip()))
-    return expanded
+def _dejavu_measure_text(text: str, font_size_pt: float) -> float:
+    _ensure_pdf_fonts()
+    return pdfmetrics.stringWidth(text, "DejaVu", font_size_pt)
 
 
-def _prepare_paragraph(paragraph, level: int, font_size_pt: int) -> None:
+def _ensure_pptx_font() -> None:
+    global _PPTX_FONT_REGISTERED
+    if _PPTX_FONT_REGISTERED:
+        return
+    pptx_font_candidates = [
+        Path("C:/Windows/Fonts/arial.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+        Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
+        *_FONT_CANDIDATES,
+    ]
+    for candidate in pptx_font_candidates:
+        if candidate.is_file() and _is_valid_ttf(candidate):
+            try:
+                pdfmetrics.registerFont(TTFont(_PPTX_FONT_NAME, str(candidate)))
+                _PPTX_FONT_REGISTERED = True
+                return
+            except Exception:
+                continue
+    _ensure_pdf_fonts()
+    _PPTX_FONT_REGISTERED = True
+
+
+def _pptx_measure_text(text: str, font_size_pt: float) -> float:
+    _ensure_pptx_font()
+    if _PPTX_FONT_NAME in pdfmetrics.getRegisteredFontNames():
+        return pdfmetrics.stringWidth(text, _PPTX_FONT_NAME, font_size_pt)
+    return _dejavu_measure_text(text, font_size_pt)
+
+
+def _resolve_formula_segment(
+    latex: str,
+    display: bool,
+    font_size_pt: float,
+) -> tuple[bytes | None, FormulaLayout | None, str | None]:
+    png = render_latex_to_png(latex, font_size_pt=font_size_pt, display=display)
+    if png:
+        return png, compute_formula_layout(
+            png, font_size_pt, display=display, latex=latex,
+        ), None
+    return None, None, _latex_plaintext_for_slide(latex)
+
+
+PptxLayoutRow = tuple[LayoutLine, int, float, bool]
+
+
+def _pptx_advance_after_line(
+    line_height_pt: float,
+    *,
+    has_next: bool,
+    next_is_block_start: bool,
+) -> float:
+    advance = line_height_pt
+    if has_next:
+        advance += (
+            EXPORT_BLOCK_GAP_PPTX_PT
+            if next_is_block_start
+            else EXPORT_LINE_GAP_PPTX_PT
+        )
+    return advance
+
+
+def _layout_paragraph_rows(
+    paragraphs: list[tuple[str, int]],
+    max_width_pt: float,
+    *,
+    measure_text,
+) -> list[PptxLayoutRow]:
+    rows: list[PptxLayoutRow] = []
+    for text, level in paragraphs:
+        font_size = pptx_font_size_pt(level)
+        layout = layout_rich_text(
+            text or "",
+            max_width_pt - (level * _PptxFormulaLayout._LEVEL_INDENT_PT),
+            font_size,
+            measure_text=lambda s, fs=font_size: measure_text(s, fs),
+            resolve_formula=lambda latex, display, fs=font_size: _resolve_formula_segment(
+                latex, display, fs,
+            ),
+        )
+        for line_index, line in enumerate(layout.lines):
+            rows.append((line, level, font_size, line_index == 0))
+    return rows
+
+
+def _paginate_layout_rows(
+    rows: list[PptxLayoutRow],
+    max_height_pt: float | None = None,
+) -> list[list[PptxLayoutRow]]:
+    if max_height_pt is None:
+        max_height_pt = _PPTX_BODY_MAX_LINES * _PPTX_ROW_HEIGHT_PT
+    if not rows:
+        return [[]]
+
+    pages: list[list[PptxLayoutRow]] = []
+    current: list[PptxLayoutRow] = []
+    current_height = 0.0
+
+    for index, (line, level, font_size, block_start) in enumerate(rows):
+        gap_before = 0.0
+        if current:
+            gap_before = (
+                EXPORT_BLOCK_GAP_PPTX_PT if block_start else EXPORT_LINE_GAP_PPTX_PT
+            )
+        needed = gap_before + line.height_pt
+        if current and current_height + needed > max_height_pt:
+            pages.append(current)
+            current, current_height = [], 0.0
+            needed = line.height_pt
+        current.append((line, level, font_size, block_start))
+        current_height += needed
+
+    if current:
+        pages.append(current)
+    return pages
+
+
+def _prepare_paragraph(paragraph, level: int, font_size_pt: int, line_height_pt: float) -> None:
     p_elem = paragraph._p
     for child in list(p_elem):
         tag = child.tag
@@ -217,41 +385,28 @@ def _prepare_paragraph(paragraph, level: int, font_size_pt: int) -> None:
     for old in list(ln_spc):
         ln_spc.remove(old)
     spc_pts = etree.SubElement(ln_spc, qn("a:spcPts"))
-    spc_pts.set("val", str(int(_PptxFormulaLayout._TEXT_LINE_PT * 100)))
+    spc_pts.set("val", str(int(max(line_height_pt, font_size_pt + 4) * 100)))
 
 
 def _fill_pptx_body(
     text_frame,
-    expanded: list[tuple[str, int, str | None]],
+    rows: list[PptxLayoutRow],
     slide,
 ) -> None:
     text_frame.clear()
-    text_frame.word_wrap = True
-    text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    text_frame.word_wrap = False
+    text_frame.auto_size = MSO_AUTO_SIZE.NONE
     layout = _PptxFormulaLayout(slide)
-    y_offset = Pt(layout._TOP_PADDING_PT)
+    y_offset_pt = layout._TOP_PADDING_PT
 
-    for index, (text, level, latex) in enumerate(expanded):
-        paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
-        font_size = 14 if level == 0 else 12
-        _prepare_paragraph(paragraph, level, font_size)
-        p_elem = paragraph._p
-
-        if latex:
-            png = render_latex_to_png(latex)
-            if png:
-                p_elem.append(_make_text_run(" ", font_size))
-                layout.add_formula_picture(png, y_offset, level, font_size)
-                row_height = layout._formula_height_pt(png, font_size) + layout._FORMULA_GAP_PT
-            else:
-                fallback = _latex_plaintext_for_slide(latex)
-                p_elem.append(_make_text_run(fallback, font_size))
-                row_height = layout._TEXT_LINE_PT * _visual_line_count(fallback, level)
-        else:
-            p_elem.append(_make_text_run(text, font_size))
-            row_height = layout._TEXT_LINE_PT * _visual_line_count(text, level)
-
-        y_offset += Pt(row_height)
+    for index, (line, level, font_size, _block_start) in enumerate(rows):
+        layout.render_absolute_line(line, level, font_size, y_offset_pt)
+        has_next = index + 1 < len(rows)
+        y_offset_pt += _pptx_advance_after_line(
+            line.height_pt,
+            has_next=has_next,
+            next_is_block_start=rows[index + 1][3] if has_next else False,
+        )
 
 
 def _make_math_run(omml_element: etree._Element, fallback_text: str) -> etree._Element:
@@ -273,33 +428,6 @@ def _make_math_run(omml_element: etree._Element, fallback_text: str) -> etree._E
     fallback = etree.SubElement(alt, f"{{{_MC_NS}}}Fallback")
     fallback.append(_make_text_run(fallback_text))
     return alt
-
-
-def _split_text_and_formulas(text: str) -> list[tuple[str, str, bool]]:
-    """
-    Возвращает список [(kind, content, display_mode)], где kind = 'text' | 'math'.
-    """
-    if not text:
-        return []
-    result: list[tuple[str, str, bool]] = []
-    pos = 0
-    for m in _INLINE_LATEX_RE.finditer(text):
-        if m.start() > pos:
-            result.append(("text", text[pos:m.start()], False))
-        raw = m.group(0)
-        for opener, closer, display in (
-            ("$$", "$$", True),
-            ("$", "$", False),
-            (r"\(", r"\)", False),
-            (r"\[", r"\]", True),
-        ):
-            if raw.startswith(opener) and raw.endswith(closer):
-                result.append(("math", raw[len(opener):-len(closer)].strip(), display))
-                break
-        pos = m.end()
-    if pos < len(text):
-        result.append(("text", text[pos:], False))
-    return result
 
 
 def _contains_latex_markers(text: str | None) -> bool:
@@ -374,6 +502,10 @@ def _format_option_raw(option) -> str:
             (option or {}).get("text") or (option or {}).get("label") or (option or {}).get("id") or ""
         )
     return str(option)
+
+
+def _format_numbered_option(index: int, option) -> str:
+    return f"{index}. {_format_option_raw(option)}"
 
 
 def _format_answers(correct_answers) -> str:
@@ -481,39 +613,14 @@ def _visual_line_count(text: str, level: int) -> int:
     return max(1, math.ceil(len(text) / width))
 
 
-def _expanded_visual_line_count(text: str, level: int, latex: str | None) -> int:
-    if latex:
-        font_size = 14 if level == 0 else 12
-        est_h = font_size * 1.5 * 0.75 + _PptxFormulaLayout._FORMULA_GAP_PT
-        return max(2, math.ceil(est_h / _PptxFormulaLayout._TEXT_LINE_PT))
-    return _visual_line_count(text, level)
-
-
 def _paginate_expanded_lines(
-    lines: list[tuple[str, int, str | None]],
+    rows: list[PptxLayoutRow],
     max_lines: int = _PPTX_BODY_MAX_LINES,
-) -> list[list[tuple[str, int, str | None]]]:
-    if not lines:
-        return [[]]
-
-    pages: list[list[tuple[str, int, str | None]]] = []
-    current: list[tuple[str, int, str | None]] = []
-    current_visual = 0
-
-    for text, level, latex in lines:
-        needed = _expanded_visual_line_count(text, level, latex)
-        if needed >= max_lines and current:
-            pages.append(current)
-            current, current_visual = [], 0
-        if current_visual + needed > max_lines and current:
-            pages.append(current)
-            current, current_visual = [], 0
-        current.append((text, level, latex))
-        current_visual += needed
-
-    if current:
-        pages.append(current)
-    return pages
+) -> list[list[PptxLayoutRow]]:
+    return _paginate_layout_rows(
+        rows,
+        max_height_pt=max_lines * _PPTX_ROW_HEIGHT_PT,
+    )
 
 
 def _paginate_body_lines(
@@ -551,9 +658,8 @@ def _question_body_paragraphs(question: Question, mode: ExportMode) -> list[tupl
     type_label = _TYPE_LABELS.get(question.question_type, question.question_type)
     paragraphs.append((f"Тип: {type_label}", 0))
 
-    for option in question.answers or []:
-        opt_raw = _format_option_raw(option)
-        paragraphs.append((opt_raw, 1))
+    for index, option in enumerate(question.answers or [], start=1):
+        paragraphs.append((_format_numbered_option(index, option), 1))
 
     if mode == "teacher":
         answer = _format_answers(question.correct_answers)
@@ -579,11 +685,17 @@ def _build_pptx(
     if subtitle and len(title_slide.placeholders) > 1:
         title_slide.placeholders[1].text = subtitle
 
+    max_width_pt = float(prs.slide_width) / 12700 * 0.82
+
     # Слайды вопросов
     for index, question in enumerate(questions, start=1):
         paragraphs = _question_body_paragraphs(question, mode)
-        expanded = _expand_pptx_body_lines(paragraphs)
-        pages = _paginate_expanded_lines(expanded)
+        rows = _layout_paragraph_rows(
+            paragraphs,
+            max_width_pt,
+            measure_text=_pptx_measure_text,
+        )
+        pages = _paginate_expanded_lines(rows)
         for part_idx, page in enumerate(pages):
             slide = prs.slides.add_slide(prs.slide_layouts[1])
             slide.shapes.title.text = (
@@ -613,102 +725,59 @@ def _clean_latex_text(text: str) -> str:
     return text
 
 
-def _draw_inline_text(
+def _draw_rich_text_block(
     c: canvas.Canvas,
     text: str,
     x: float,
     y: float,
     max_width: float,
     font_name: str = "DejaVu",
-    font_size: int = 11,
-    line_height: int = 14,
+    font_size: float = EXPORT_FONT_BODY_PT,
 ) -> float:
-    """
-    Рисует текст с inline LaTeX-формулами ($...$).
-    Логика масштабирования и вставки PNG — как в рабочем export-варианте.
-    """
-    text = _clean_latex_text(text or "")
+    """Рисует блок текста+формул; возвращает baseline для следующего блока."""
+    cleaned = _clean_latex_text(text or "")
 
-    latex_parts = re.findall(r"\$(.+?)\$", text)
-    clean_text = re.sub(r"\$.+?\$", "<<<LATEX_PLACEHOLDER>>>", text)
-    text_parts = clean_text.split("<<<LATEX_PLACEHOLDER>>>")
+    def measure(token: str) -> float:
+        c.setFont(font_name, font_size)
+        return c.stringWidth(token, font_name, font_size)
 
-    current_x = x
-    current_y = y
-    latex_index = 0
+    layout = layout_rich_text(
+        cleaned,
+        max_width,
+        font_size,
+        measure_text=measure,
+        resolve_formula=lambda latex, display: _resolve_formula_segment(
+            latex, display, font_size,
+        ),
+    )
+    if not layout.lines:
+        return y - EXPORT_FONT_LINE_HEIGHT_PT - EXPORT_BLOCK_GAP_PT
 
-    for i, text_part in enumerate(text_parts):
-        if text_part:
-            words = text_part.split(" ")
-            for j, word in enumerate(words):
-                if j > 0:
-                    word = " " + word
-
+    baseline_y = y
+    for line_index, line in enumerate(layout.lines):
+        for seg in line.segments:
+            sx = x + seg.x_pt
+            if seg.kind in {"text", "fallback"}:
                 c.setFont(font_name, font_size)
-                width = c.stringWidth(word, font_name, font_size)
-
-                if current_x + width > x + max_width and current_x > x:
-                    current_y -= line_height
-                    current_x = x
-                    word = word.lstrip()
-                    width = c.stringWidth(word, font_name, font_size)
-
-                c.drawString(current_x, current_y, word)
-                current_x += width
-
-        if i < len(text_parts) - 1 and latex_index < len(latex_parts):
-            latex = latex_parts[latex_index]
-            latex_index += 1
-
-            img_bytes = render_latex_to_png(latex)
-            if not img_bytes:
-                fb = _latex_plaintext_for_slide(latex) or latex or "?"
-                c.setFont(font_name, font_size)
-                w_fb = c.stringWidth(fb, font_name, font_size)
-                if current_x + w_fb > x + max_width and current_x > x:
-                    current_y -= line_height
-                    current_x = x
-                c.drawString(current_x, current_y, fb)
-                current_x += w_fb + 2
+                c.drawString(sx, baseline_y, seg.content)
                 continue
 
+            if not seg.png_bytes or not seg.formula_layout:
+                continue
+
+            fl = seg.formula_layout
             tmp_path = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                    tmp.write(img_bytes)
+                    tmp.write(seg.png_bytes)
                     tmp_path = tmp.name
-
-                img = PILImage.open(tmp_path)
-                img_w, img_h = img.size
-
-                scale = (font_size * 1.5) / img_h
-                w = img_w * scale * 0.75
-                h = img_h * scale * 0.75
-
-                if current_x + w > x + max_width and current_x > x:
-                    current_y -= line_height
-                    current_x = x
-
                 c.drawImage(
                     tmp_path,
-                    current_x,
-                    current_y - h + (font_size * 0.9),
-                    width=w,
-                    height=h,
+                    sx,
+                    baseline_y - fl.height_pt + fl.baseline_offset_pt,
+                    width=fl.width_pt,
+                    height=fl.height_pt,
                 )
-                current_x += w + 2
-            except Exception as e:
-                import logging
-
-                logging.warning("Failed to render LaTeX %r: %s", latex, e)
-                fb2 = _latex_plaintext_for_slide(latex) or latex or "?"
-                c.setFont(font_name, font_size)
-                w_fb2 = c.stringWidth(fb2, font_name, font_size)
-                if current_x + w_fb2 > x + max_width and current_x > x:
-                    current_y -= line_height
-                    current_x = x
-                c.drawString(current_x, current_y, fb2)
-                current_x += w_fb2 + 2
             finally:
                 if tmp_path and os.path.exists(tmp_path):
                     try:
@@ -716,7 +785,28 @@ def _draw_inline_text(
                     except OSError:
                         pass
 
-    return current_y - line_height
+        if line_index + 1 < len(layout.lines):
+            baseline_y -= line.height_pt + EXPORT_LINE_GAP_PT
+
+    return next_baseline_after_block(y, layout)
+
+
+_PDF_QUESTION_GAP_PT = 24.0
+_PDF_MIN_QUESTION_START_Y_PT = 60.0
+
+
+def _pdf_break_if_low(
+    c: canvas.Canvas,
+    y: float,
+    height: float,
+    margin: float,
+    *,
+    min_y: float = _PDF_MIN_QUESTION_START_Y_PT,
+) -> float:
+    if y < margin + min_y:
+        c.showPage()
+        return height - margin
+    return y
 
 
 def _build_pdf(quiz: Quiz, questions: list[Question], mode: ExportMode) -> tuple[bytes, str, str]:
@@ -744,10 +834,9 @@ def _build_pdf(quiz: Quiz, questions: list[Question], mode: ExportMode) -> tuple
         y -= 30
 
     for index, question in enumerate(questions, start=1):
-        # проверка места на странице
-        if y < 80:
-            c.showPage()
-            y = height - margin
+        if index > 1:
+            y -= _PDF_QUESTION_GAP_PT
+        y = _pdf_break_if_low(c, y, height, margin)
 
         # номер вопроса
         c.setFont("DejaVu-Bold", 14)
@@ -755,8 +844,8 @@ def _build_pdf(quiz: Quiz, questions: list[Question], mode: ExportMode) -> tuple
         y -= 22
 
         # текст вопроса
-        y = _draw_inline_text(
-            c, question.question_text or "", x, y, max_text_width, "DejaVu", 11, 14,
+        y = _draw_rich_text_block(
+            c, question.question_text or "", x, y, max_text_width,
         )
         y -= 8
 
@@ -767,12 +856,12 @@ def _build_pdf(quiz: Quiz, questions: list[Question], mode: ExportMode) -> tuple
         y -= 18
 
         # варианты ответов
-        for option in question.answers or []:
+        for index, option in enumerate(question.answers or [], start=1):
             if y < 30:
                 c.showPage()
                 y = height - margin
-            y = _draw_inline_text(
-                c, f"- {_format_option_raw(option)}", x, y, max_text_width, "DejaVu", 11, 14,
+            y = _draw_rich_text_block(
+                c, _format_numbered_option(index, option), x, y, max_text_width,
             )
 
         # правильные ответы и пояснение
@@ -782,7 +871,7 @@ def _build_pdf(quiz: Quiz, questions: list[Question], mode: ExportMode) -> tuple
                 c.showPage()
                 y = height - margin
 
-            c.setFont("DejaVu-Bold", 10)
+            c.setFont("DejaVu-Bold", EXPORT_FONT_BODY_PT)
             c.drawString(x, y, "Правильный ответ:")
             y -= 16
 
@@ -791,10 +880,10 @@ def _build_pdf(quiz: Quiz, questions: list[Question], mode: ExportMode) -> tuple
                     if y < 20:
                         c.showPage()
                         y = height - margin
-                    y = _draw_inline_text(c, str(answer), x, y, max_text_width, "DejaVu", 10, 13)
+                    y = _draw_rich_text_block(c, str(answer), x, y, max_text_width)
             else:
-                y = _draw_inline_text(
-                    c, str(question.correct_answers or ""), x, y, max_text_width, "DejaVu", 10, 13,
+                y = _draw_rich_text_block(
+                    c, str(question.correct_answers or ""), x, y, max_text_width,
                 )
 
             if question.explanation:
@@ -802,20 +891,12 @@ def _build_pdf(quiz: Quiz, questions: list[Question], mode: ExportMode) -> tuple
                 if y < 40:
                     c.showPage()
                     y = height - margin
-                c.setFont("DejaVu-Bold", 10)
+                c.setFont("DejaVu-Bold", EXPORT_FONT_BODY_PT)
                 c.drawString(x, y, "Пояснение:")
                 y -= 16
-                y = _draw_inline_text(
-                    c, question.explanation or "", x, y, max_text_width, "DejaVu", 10, 13,
+                y = _draw_rich_text_block(
+                    c, question.explanation or "", x, y, max_text_width,
                 )
-
-        # отступ меж вопросами
-        y -= 20
-
-        # новая страница для след вопроса
-        if index < len(questions):
-            c.showPage()
-            y = height - margin
 
     c.save()
     buf.seek(0)

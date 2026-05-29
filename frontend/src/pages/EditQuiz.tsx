@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { Download, Plus, Trash2 } from "lucide-react"
+import { Download, Loader2, Plus, Trash2 } from "lucide-react"
 
 import { MathPreview } from "@/components/MathText"
 import { Button } from "@/components/ui/button"
@@ -231,6 +231,13 @@ const DIFFICULTY_API: Record<Difficulty, "easy" | "medium" | "hard"> = {
 }
 type TimerMode = "per_question" | "total" | "none"
 type ExportMode = "teacher" | "student"
+type ExportFormat = "pdf" | "pptx" | "docx"
+
+const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
+  pdf: "PDF",
+  pptx: "PPTX",
+  docx: "DOCX",
+}
 
 function mapDifficultyBackendToFrontend(difficulty: string | null | undefined) {
   if (difficulty === "easy") return "Легко" as Difficulty
@@ -416,6 +423,7 @@ export default function EditQuiz({
   const [pdfExportMode, setPdfExportMode] = useState<ExportMode>("teacher")
   const [pptxExportMode, setPptxExportMode] = useState<ExportMode>("teacher")
   const [docxExportMode, setDocxExportMode] = useState<ExportMode>("teacher")
+  const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null)
   const [saveError, setSaveError] = useState("")
 
   useEffect(() => {
@@ -802,32 +810,28 @@ export default function EditQuiz({
     onPublish?.(getPayload())
   }
 
-  const handleDownloadPdf = () => {
-    void downloadAuthenticatedFile(
-      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pdf&mode=${pdfExportMode}`,
-      buildDownloadFilename(quiz.title, "pdf")
-    ).catch((err) => {
-      setSaveError(err instanceof Error ? err.message : "Не удалось скачать PDF")
-    })
+  const handleExport = async (format: ExportFormat, mode: ExportMode) => {
+    if (!resolvedQuizId) return
+
+    setExportingFormat(format)
+    setSaveError("")
+    try {
+      await downloadAuthenticatedFile(
+        `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=${format}&mode=${mode}`,
+        buildDownloadFilename(quiz.title, format)
+      )
+    } catch (err) {
+      setSaveError(
+        err instanceof Error
+          ? err.message
+          : `Не удалось скачать ${EXPORT_FORMAT_LABELS[format]}`
+      )
+    } finally {
+      setExportingFormat(null)
+    }
   }
 
-  const handleDownloadPptx = () => {
-    void downloadAuthenticatedFile(
-      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=pptx&mode=${pptxExportMode}`,
-      buildDownloadFilename(quiz.title, "pptx")
-    ).catch((err) => {
-      setSaveError(err instanceof Error ? err.message : "Не удалось скачать PPTX")
-    })
-  }
-
-  const handleDownloadDocx = () => {
-    void downloadAuthenticatedFile(
-      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=docx&mode=${docxExportMode}`,
-      buildDownloadFilename(quiz.title, "docx")
-    ).catch((err) => {
-      setSaveError(err instanceof Error ? err.message : "Не удалось скачать DOCX")
-    })
-  }
+  const isExporting = exportingFormat !== null
 
   const parseNumberInput = (value: string, min: number, fallback: number) =>
     Math.max(min, Number(value) || fallback)
@@ -1193,12 +1197,23 @@ export default function EditQuiz({
       </div>
 
       <div className="fixed inset-x-0 bottom-0 z-50 border-t-2 border-quiz-card-border bg-white/95 px-4 py-3 shadow-lg backdrop-blur-sm">
-        <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-center gap-3 sm:justify-end">
+        <div className="mx-auto max-w-4xl">
+          {exportingFormat && (
+            <p
+              className="mb-2 text-center text-sm text-muted-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              Идёт формирование {EXPORT_FORMAT_LABELS[exportingFormat]}… Это может
+              занять до минуты, особенно если в викторине есть формулы.
+            </p>
+          )}
+          <div className="flex flex-wrap items-center justify-center gap-3 sm:justify-end">
           <Button
             type="button"
             className={cn(ACCENT_BUTTON_CLASS)}
             onClick={handleSave}
-            disabled={isLoadingQuiz || isSavingQuiz}
+            disabled={isLoadingQuiz || isSavingQuiz || isExporting}
           >
             Сохранить черновик
           </Button>
@@ -1206,6 +1221,7 @@ export default function EditQuiz({
             <Select
               value={pdfExportMode}
               onValueChange={(value) => setPdfExportMode(value as ExportMode)}
+              disabled={isExporting}
             >
               <SelectTrigger className="w-[180px] bg-white" aria-label="Экспорт PDF">
                 <SelectValue />
@@ -1218,17 +1234,27 @@ export default function EditQuiz({
             <Button
               type="button"
               variant="secondary"
-              onClick={handleDownloadPdf}
-              disabled={isLoadingQuiz || isSavingQuiz}
+              onClick={() => void handleExport("pdf", pdfExportMode)}
+              disabled={isLoadingQuiz || isSavingQuiz || isExporting}
             >
-              <Download className="size-4" />
-              Скачать PDF
+              {exportingFormat === "pdf" ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Формирование PDF…
+                </>
+              ) : (
+                <>
+                  <Download className="size-4" />
+                  Скачать PDF
+                </>
+              )}
             </Button>
           </div>
           <div className="flex items-center gap-2">
             <Select
               value={pptxExportMode}
               onValueChange={(value) => setPptxExportMode(value as ExportMode)}
+              disabled={isExporting}
             >
               <SelectTrigger className="w-[180px] bg-white" aria-label="Экспорт PPTX">
                 <SelectValue />
@@ -1241,17 +1267,27 @@ export default function EditQuiz({
             <Button
               type="button"
               variant="secondary"
-              onClick={handleDownloadPptx}
-              disabled={isLoadingQuiz || isSavingQuiz}
+              onClick={() => void handleExport("pptx", pptxExportMode)}
+              disabled={isLoadingQuiz || isSavingQuiz || isExporting}
             >
-              <Download className="size-4" />
-              Скачать PPTX
+              {exportingFormat === "pptx" ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Формирование PPTX…
+                </>
+              ) : (
+                <>
+                  <Download className="size-4" />
+                  Скачать PPTX
+                </>
+              )}
             </Button>
           </div>
           <div className="flex items-center gap-2">
             <Select
               value={docxExportMode}
               onValueChange={(value) => setDocxExportMode(value as ExportMode)}
+              disabled={isExporting}
             >
               <SelectTrigger className="w-[180px] bg-white" aria-label="Экспорт DOCX">
                 <SelectValue />
@@ -1264,21 +1300,31 @@ export default function EditQuiz({
             <Button
               type="button"
               variant="secondary"
-              onClick={handleDownloadDocx}
-              disabled={isLoadingQuiz || isSavingQuiz}
+              onClick={() => void handleExport("docx", docxExportMode)}
+              disabled={isLoadingQuiz || isSavingQuiz || isExporting}
             >
-              <Download className="size-4" />
-              Скачать DOCX
+              {exportingFormat === "docx" ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Формирование DOCX…
+                </>
+              ) : (
+                <>
+                  <Download className="size-4" />
+                  Скачать DOCX
+                </>
+              )}
             </Button>
           </div>
           <Button
             type="button"
             variant="secondary"
             onClick={handlePublish}
-            disabled={isLoadingQuiz || isSavingQuiz}
+            disabled={isLoadingQuiz || isSavingQuiz || isExporting}
           >
             Копировать ссылку для учеников
           </Button>
+          </div>
         </div>
       </div>
     </div>
