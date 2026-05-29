@@ -30,6 +30,7 @@ from app.services.formula_export import (
     EXPORT_FONT_LINE_HEIGHT_PT,
     EXPORT_LINE_GAP_PT,
     EXPORT_LINE_GAP_PPTX_PT,
+    FormulaLayout,
     LayoutLine,
     compute_formula_layout,
     layout_rich_text,
