@@ -6,7 +6,7 @@ from docx import Document
 from docx.shared import Pt
 
 from app.db.models import Question, Quiz
-from app.services.latex_renderer import render_latex_to_png
+from app.services.latex_renderer import render_latex_to_png, latex_render_batch
 from app.services.presentation_export_service import (
     _question_body_paragraphs,
     _safe_filename,
@@ -83,4 +83,5 @@ def export_quiz_docx(
     mode: ExportMode = "teacher",
 ) -> tuple[bytes, str, str]:
     quiz, questions = load_quiz_with_questions(quiz_id)
-    return build_quiz_docx(quiz, questions, mode)
+    with latex_render_batch():
+        return build_quiz_docx(quiz, questions, mode)

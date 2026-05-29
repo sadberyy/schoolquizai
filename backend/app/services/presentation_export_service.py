@@ -24,7 +24,7 @@ from reportlab.pdfgen import canvas
 import matplotlib
 matplotlib.use('Agg')
 
-from app.services.latex_renderer import render_latex_to_png
+from app.services.latex_renderer import render_latex_to_png, latex_render_batch
 from app.db.database import get_db_session
 from app.db.models import Question, Quiz
 
@@ -453,10 +453,11 @@ def export_quiz(
     mode: ExportMode = "teacher",
 ) -> tuple[bytes, str, str]:
     quiz, questions = load_quiz_with_questions(quiz_id)
-    if export_format == "pptx":
-        return _build_pptx(quiz, questions, mode)
-    if export_format == "pdf":
-        return _build_pdf(quiz, questions, mode)
+    with latex_render_batch():
+        if export_format == "pptx":
+            return _build_pptx(quiz, questions, mode)
+        if export_format == "pdf":
+            return _build_pdf(quiz, questions, mode)
     raise HTTPException(status_code=400, detail="Формат должен быть pptx или pdf")
 
 
