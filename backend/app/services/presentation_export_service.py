@@ -12,6 +12,7 @@ from lxml import etree
 from pptx import Presentation
 from pptx.enum.text import MSO_AUTO_SIZE
 from pptx.oxml.ns import qn
+from pptx.util import Pt
 from PIL import Image as PILImage
 
 from reportlab.lib.pagesizes import A4
@@ -26,7 +27,6 @@ matplotlib.use('Agg')
 from app.services.latex_renderer import render_latex_to_png
 from app.db.database import get_db_session
 from app.db.models import Question, Quiz
-from app.services.latex_to_omml import latex_to_omml
 
 ExportFormat = Literal["pptx", "pdf"]
 ExportMode = Literal["teacher", "student"]
@@ -133,54 +133,125 @@ def _make_text_run(text: str, font_size_pt: int = 14) -> etree._Element:
     return a_r
 
 
-def _set_paragraph_with_math(paragraph, text: str, level: int, font_size_pt: int) -> None:
+class _PptxFormulaLayout:
+    """Размещает PNG-формулы на слайде через add_picture (не wp:inline из Word)."""
+
+    _TEXT_LINE_PT = 20
+    _LEVEL_INDENT_PT = 18
+    _TOP_PADDING_PT = 6
+    _FORMULA_GAP_PT = 4
+
+    def __init__(self, slide) -> None:
+        placeholder = slide.shapes.placeholders[1]
+        self.slide = slide
+        self.body_left = placeholder.left
+        self.body_top = placeholder.top
+
+    def _level_indent(self, level: int) -> int:
+        return Pt(level * self._LEVEL_INDENT_PT)
+
+    @staticmethod
+    def _formula_height_pt(png_bytes: bytes, font_size_pt: int) -> float:
+        """Высота PNG в пунктах — та же формула, что в PDF (_draw_inline_text)."""
+        img = PILImage.open(BytesIO(png_bytes))
+        img_h = img.size[1]
+        if img_h <= 0:
+            return float(font_size_pt)
+        scale = (font_size_pt * 1.5) / img_h
+        return img_h * scale * 0.75
+
+    def add_formula_picture(
+        self,
+        png_bytes: bytes,
+        top_offset,
+        level: int,
+        font_size_pt: int,
+    ) -> None:
+        img = PILImage.open(BytesIO(png_bytes))
+        img_w, img_h = img.size
+        if img_h <= 0:
+            return
+
+        scale = (font_size_pt * 1.5) / img_h
+        height = Pt(img_h * scale * 0.75)
+        left = self.body_left + self._level_indent(level)
+        top = self.body_top + top_offset + Pt(2)
+        self.slide.shapes.add_picture(BytesIO(png_bytes), left, top, height=height)
+
+
+def _expand_pptx_body_lines(
+    lines: list[tuple[str, int]],
+) -> list[tuple[str, int, str | None]]:
+    """Текст и каждая формула — отдельная строка слайда (без inline-позиционирования)."""
+    expanded: list[tuple[str, int, str | None]] = []
+    for text, level in lines:
+        parts = _split_text_and_formulas(text or "")
+        if not parts:
+            expanded.append(("", level, None))
+            continue
+        for kind, content, _display in parts:
+            if kind == "text":
+                if content.strip():
+                    expanded.append((content, level, None))
+            elif content.strip():
+                expanded.append(("", level, content.strip()))
+    return expanded
+
+
+def _prepare_paragraph(paragraph, level: int, font_size_pt: int) -> None:
     p_elem = paragraph._p
-    # очистить старые runs
     for child in list(p_elem):
         tag = child.tag
         if tag == qn("a:r") or tag == qn("a:br") or tag.endswith("}AlternateContent"):
             p_elem.remove(child)
 
-    # выставить level
-    pPr = p_elem.find(qn("a:pPr"))
-    if pPr is None:
-        pPr = etree.SubElement(p_elem, qn("a:pPr"))
-        p_elem.insert(0, pPr)
-    pPr.set("lvl", str(level))
+    p_pr = p_elem.find(qn("a:pPr"))
+    if p_pr is None:
+        p_pr = etree.SubElement(p_elem, qn("a:pPr"))
+        p_elem.insert(0, p_pr)
+    p_pr.set("lvl", str(level))
 
-    parts = _split_text_and_formulas(text)
-    if not parts:
-        p_elem.append(_make_text_run("", font_size_pt))
-        return
-
-    for kind, content, _display in parts:
-        if kind == "text":
-            if content:
-                p_elem.append(_make_text_run(content, font_size_pt))
-        else:  # math
-            if _latex_skip_omml_use_plaintext(content):
-                p_elem.append(_make_text_run(_latex_plaintext_for_slide(content), font_size_pt))
-                continue
-            try:
-                omml = latex_to_omml(content)
-            except Exception:
-                omml = None
-            if omml is not None:
-                p_elem.append(_make_math_run(omml, fallback_text=content))
-            else:
-                # парсинг не удался — вставляем исходник как текст
-                p_elem.append(_make_text_run(content, font_size_pt))
+    ln_spc = p_pr.find(qn("a:lnSpc"))
+    if ln_spc is None:
+        ln_spc = etree.SubElement(p_pr, qn("a:lnSpc"))
+    for old in list(ln_spc):
+        ln_spc.remove(old)
+    spc_pts = etree.SubElement(ln_spc, qn("a:spcPts"))
+    spc_pts.set("val", str(int(_PptxFormulaLayout._TEXT_LINE_PT * 100)))
 
 
-def _fill_pptx_body(text_frame, lines: list[tuple[str, int]]) -> None:
+def _fill_pptx_body(
+    text_frame,
+    expanded: list[tuple[str, int, str | None]],
+    slide,
+) -> None:
     text_frame.clear()
     text_frame.word_wrap = True
     text_frame.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+    layout = _PptxFormulaLayout(slide)
+    y_offset = Pt(layout._TOP_PADDING_PT)
 
-    for index, (text, level) in enumerate(lines):
+    for index, (text, level, latex) in enumerate(expanded):
         paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
         font_size = 14 if level == 0 else 12
-        _set_paragraph_with_math(paragraph, text, level, font_size)
+        _prepare_paragraph(paragraph, level, font_size)
+        p_elem = paragraph._p
+
+        if latex:
+            png = render_latex_to_png(latex)
+            if png:
+                p_elem.append(_make_text_run(" ", font_size))
+                layout.add_formula_picture(png, y_offset, level, font_size)
+                row_height = layout._formula_height_pt(png, font_size) + layout._FORMULA_GAP_PT
+            else:
+                fallback = _latex_plaintext_for_slide(latex)
+                p_elem.append(_make_text_run(fallback, font_size))
+                row_height = layout._TEXT_LINE_PT * _visual_line_count(fallback, level)
+        else:
+            p_elem.append(_make_text_run(text, font_size))
+            row_height = layout._TEXT_LINE_PT * _visual_line_count(text, level)
+
+        y_offset += Pt(row_height)
 
 
 def _make_math_run(omml_element: etree._Element, fallback_text: str) -> etree._Element:
@@ -409,6 +480,41 @@ def _visual_line_count(text: str, level: int) -> int:
     return max(1, math.ceil(len(text) / width))
 
 
+def _expanded_visual_line_count(text: str, level: int, latex: str | None) -> int:
+    if latex:
+        font_size = 14 if level == 0 else 12
+        est_h = font_size * 1.5 * 0.75 + _PptxFormulaLayout._FORMULA_GAP_PT
+        return max(2, math.ceil(est_h / _PptxFormulaLayout._TEXT_LINE_PT))
+    return _visual_line_count(text, level)
+
+
+def _paginate_expanded_lines(
+    lines: list[tuple[str, int, str | None]],
+    max_lines: int = _PPTX_BODY_MAX_LINES,
+) -> list[list[tuple[str, int, str | None]]]:
+    if not lines:
+        return [[]]
+
+    pages: list[list[tuple[str, int, str | None]]] = []
+    current: list[tuple[str, int, str | None]] = []
+    current_visual = 0
+
+    for text, level, latex in lines:
+        needed = _expanded_visual_line_count(text, level, latex)
+        if needed >= max_lines and current:
+            pages.append(current)
+            current, current_visual = [], 0
+        if current_visual + needed > max_lines and current:
+            pages.append(current)
+            current, current_visual = [], 0
+        current.append((text, level, latex))
+        current_visual += needed
+
+    if current:
+        pages.append(current)
+    return pages
+
+
 def _paginate_body_lines(
     lines: list[tuple[str, int]],
     max_lines: int = _PPTX_BODY_MAX_LINES,
@@ -475,13 +581,14 @@ def _build_pptx(
     # Слайды вопросов
     for index, question in enumerate(questions, start=1):
         paragraphs = _question_body_paragraphs(question, mode)
-        pages = _paginate_body_lines(paragraphs)
+        expanded = _expand_pptx_body_lines(paragraphs)
+        pages = _paginate_expanded_lines(expanded)
         for part_idx, page in enumerate(pages):
             slide = prs.slides.add_slide(prs.slide_layouts[1])
             slide.shapes.title.text = (
                 f"Вопрос {index}" if part_idx == 0 else f"Вопрос {index} (продолжение)"
             )
-            _fill_pptx_body(slide.shapes.placeholders[1].text_frame, page)
+            _fill_pptx_body(slide.shapes.placeholders[1].text_frame, page, slide)
 
     buffer = BytesIO()
     prs.save(buffer)

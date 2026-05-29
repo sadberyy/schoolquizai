@@ -1,7 +1,7 @@
 /** Имя файла для скачивания (как на backend в _safe_filename). */
 export function buildDownloadFilename(
   title: string,
-  extension: "pdf" | "pptx",
+  extension: "pdf" | "pptx" | "docx",
   options?: { suffix?: string; fallbackBase?: string }
 ): string {
   const fallbackBase = options?.fallbackBase ?? "quiz"

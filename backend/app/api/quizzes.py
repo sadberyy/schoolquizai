@@ -22,6 +22,7 @@ from app.services.material_service import material_service
 from app.services.gigachat_service import gigachat_service
 from app.services.quiz_service import AI_RESPONSE_PARSE_ERROR, quiz_service
 from app.services.presentation_export_service import export_quiz
+from app.services.docx_export_service import export_quiz_docx
 from app.services.results_export_service import export_results_pdf
 from app.services.quiz_validation_service import quiz_validation_service
 from app.services.attempts_service import (
@@ -416,12 +417,15 @@ async def generate_quiz_from_materials(
 @router.get("/{quiz_id}/export")
 def export_quiz_route(
     quiz_id: str,
-    format: Literal["pptx", "pdf"] = "pptx",
+    format: Literal["pptx", "pdf", "docx"] = "pptx",
     mode: Literal["teacher", "student"] = "teacher",
     current_user: CurrentUser = Depends(get_current_user),
 ):
     require_quiz_owner(quiz_id, current_user.id)
-    file_bytes, filename, media_type = export_quiz(quiz_id, format, mode)
+    if format == "docx":
+        file_bytes, filename, media_type = export_quiz_docx(quiz_id, mode)
+    else:
+        file_bytes, filename, media_type = export_quiz(quiz_id, format, mode)
     return StreamingResponse(
         BytesIO(file_bytes),
         media_type=media_type,

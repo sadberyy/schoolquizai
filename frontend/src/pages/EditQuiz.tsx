@@ -415,6 +415,7 @@ export default function EditQuiz({
   const [isSavingQuiz, setIsSavingQuiz] = useState(false)
   const [pdfExportMode, setPdfExportMode] = useState<ExportMode>("teacher")
   const [pptxExportMode, setPptxExportMode] = useState<ExportMode>("teacher")
+  const [docxExportMode, setDocxExportMode] = useState<ExportMode>("teacher")
   const [saveError, setSaveError] = useState("")
 
   useEffect(() => {
@@ -816,6 +817,15 @@ export default function EditQuiz({
       buildDownloadFilename(quiz.title, "pptx")
     ).catch((err) => {
       setSaveError(err instanceof Error ? err.message : "Не удалось скачать PPTX")
+    })
+  }
+
+  const handleDownloadDocx = () => {
+    void downloadAuthenticatedFile(
+      `${API_BASE_URL}/quiz/${resolvedQuizId}/export?format=docx&mode=${docxExportMode}`,
+      buildDownloadFilename(quiz.title, "docx")
+    ).catch((err) => {
+      setSaveError(err instanceof Error ? err.message : "Не удалось скачать DOCX")
     })
   }
 
@@ -1236,6 +1246,29 @@ export default function EditQuiz({
             >
               <Download className="size-4" />
               Скачать PPTX
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={docxExportMode}
+              onValueChange={(value) => setDocxExportMode(value as ExportMode)}
+            >
+              <SelectTrigger className="w-[180px] bg-white" aria-label="Экспорт DOCX">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="teacher">Для учителя</SelectItem>
+                <SelectItem value="student">Для учеников</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleDownloadDocx}
+              disabled={isLoadingQuiz || isSavingQuiz}
+            >
+              <Download className="size-4" />
+              Скачать DOCX
             </Button>
           </div>
           <Button

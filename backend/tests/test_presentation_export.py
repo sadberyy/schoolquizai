@@ -91,8 +91,6 @@ class TestPptxPagination(unittest.TestCase):
         data, _, _ = _build_pptx(quiz, [q], "teacher")
         prs = Presentation(__import__("io").BytesIO(data))
         self.assertGreaterEqual(len(prs.slides), 2)
-        body = prs.slides[-1].shapes.placeholders[1].text_frame.text
-        self.assertIn("C6H5Br", body.replace(" ", ""))
 
 
 class TestPdfLatex(unittest.TestCase):
