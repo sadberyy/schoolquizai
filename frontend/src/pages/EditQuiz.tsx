@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Link, useParams } from "react-router-dom"
-import { Download, Loader2, Plus, Trash2 } from "lucide-react"
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
+import { Check, ChevronsUpDown, Download, Loader2, Plus, Trash2 } from "lucide-react"
 
 import { MathPreview } from "@/components/MathText"
 import { Button } from "@/components/ui/button"
@@ -16,8 +16,35 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import { API_BASE_URL, getStudentQuizBaseUrl } from "@/lib/api"
+import {
+  API_BASE_URL,
+  createFolder,
+  getFolders,
+  getStudentQuizBaseUrl,
+  type QuizFolder,
+  type UpdateQuizRequest,
+} from "@/lib/api"
 import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
 import { buildDownloadFilename } from "@/lib/downloadFilename"
 import { readApiError } from "@/lib/quizApi"
@@ -363,6 +390,7 @@ export function backendQuizToQuizData(backendQuiz: any): QuizData {
 
   return {
     id: String(backendQuiz.quiz_id),
+    folderId: backendQuiz.folder_id ?? null,
     title: backendQuiz.title ?? "",
     difficulty: mappedDifficulty,
     attempts: Math.max(1, Number(backendQuiz.max_attempts) || 1),
@@ -408,6 +436,9 @@ export default function EditQuiz({
   onPublish,
 }: EditQuizProps) {
   const { quizId: routeQuizId } = useParams<{ quizId: string }>()
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const returnFolderId = searchParams.get("folder_id")
 
   const resolvedQuizId = routeQuizId
 
@@ -426,9 +457,19 @@ export default function EditQuiz({
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null)
   const [saveError, setSaveError] = useState("")
 
+  const [quizFolderId, setQuizFolderId] = useState<string | null>(null)
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+  const [dialogFolders, setDialogFolders] = useState<QuizFolder[]>([])
+  const [selectedFolderId, setSelectedFolderId] = useState<string>("")
+  const [folderComboboxOpen, setFolderComboboxOpen] = useState(false)
+  const [folderDialogError, setFolderDialogError] = useState("")
+  const [foldersDialogLoading, setFoldersDialogLoading] = useState(false)
+
   useEffect(() => {
     if (!quizData) return
-    setQuiz(normalizeQuizData(quizData))
+    const normalized = normalizeQuizData(quizData)
+    setQuiz(normalized)
+    setQuizFolderId(normalized.folderId ?? null)
   }, [quizData])
 
   useEffect(() => {
@@ -456,6 +497,7 @@ export default function EditQuiz({
 
         if (ignore) return
         setQuiz(normalized)
+        setQuizFolderId(normalized.folderId ?? null)
         backendQuestionIdsRef.current = new Set(
           normalized.questions.map((q) => q.id)
         )
@@ -632,17 +674,19 @@ export default function EditQuiz({
     [quiz]
   )
 
-  const syncQuizWithBackend = async (status: "draft" | "published") => {
-    if (!resolvedQuizId) return
+  const syncQuizWithBackend = async (
+    status: "draft" | "published",
+    folderId?: string | null
+  ): Promise<boolean> => {
+    if (!resolvedQuizId) return false
 
     setIsSavingQuiz(true)
     setSaveError("")
 
     try {
-      const updateQuizPayload = {
+      const updateQuizPayload: UpdateQuizRequest = {
         title: quiz.title,
         difficulty: mapDifficultyFrontendToBackend(quiz.difficulty),
-        timer_mode: quiz.timerMode,
         full_time_seconds:
           quiz.timerMode === "total" ? Math.round(Number(quiz.totalTimer) * 60) : 0,
         question_time_seconds:
@@ -651,6 +695,10 @@ export default function EditQuiz({
             : 0,
         max_attempts: Math.round(Number(quiz.attempts)),
         status,
+      }
+
+      if (folderId !== undefined) {
+        updateQuizPayload.folder_id = folderId
       }
 
       const updateQuizRes = await authFetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`, {
@@ -780,23 +828,91 @@ export default function EditQuiz({
       const normalized = normalizeQuizData(mapped)
 
       setQuiz(normalized)
+      if (folderId !== undefined) {
+        setQuizFolderId(folderId)
+      }
       backendQuestionIdsRef.current = new Set(
         normalized.questions.map((qq) => qq.id)
       )
 
       onSave?.(getPayload())
+      return true
     } catch (err) {
       setSaveError(
         err instanceof Error ? err.message : "Не удалось сохранить викторину"
       )
+      return false
     } finally {
       setIsSavingQuiz(false)
     }
   }
 
-  const handleSave = () => {
-    void syncQuizWithBackend("draft")
+  const openFolderDialog = async () => {
+    setFolderDialogError("")
+    setFoldersDialogLoading(true)
+    setFolderDialogOpen(true)
+
+    try {
+      const list = await getFolders()
+      setDialogFolders(list)
+      const defaultId =
+        quizFolderId ??
+        returnFolderId ??
+        (list.length > 0 ? list[0].id : "")
+      setSelectedFolderId(defaultId)
+    } catch (err) {
+      setFolderDialogError(
+        err instanceof Error ? err.message : "Не удалось загрузить папки"
+      )
+    } finally {
+      setFoldersDialogLoading(false)
+    }
   }
+
+  const handleCreateFolderInDialog = async () => {
+    const name = window.prompt("Название новой папки")
+    if (!name?.trim()) return
+
+    setFolderDialogError("")
+    try {
+      const created = await createFolder(name.trim())
+      const list = await getFolders()
+      setDialogFolders(list)
+      setSelectedFolderId(created.id)
+    } catch (err) {
+      setFolderDialogError(
+        err instanceof Error ? err.message : "Не удалось создать папку"
+      )
+    }
+  }
+
+  const handleConfirmSaveToFolder = async () => {
+    if (!selectedFolderId) {
+      setFolderDialogError("Выберите папку")
+      return
+    }
+
+    const ok = await syncQuizWithBackend("draft", selectedFolderId)
+    if (!ok) {
+      setFolderDialogError(saveError || "Не удалось сохранить викторину")
+      return
+    }
+
+    setFolderDialogOpen(false)
+    navigate(`/?folder_id=${encodeURIComponent(selectedFolderId)}`)
+  }
+
+  const handleSave = () => {
+    void openFolderDialog()
+  }
+
+  const dashboardBackTo =
+    returnFolderId ?? quizFolderId
+      ? `/?folder_id=${encodeURIComponent(returnFolderId ?? quizFolderId ?? "")}`
+      : "/"
+
+  const selectedFolderName =
+    dialogFolders.find((f) => f.id === selectedFolderId)?.name ?? ""
 
   const handlePublish = async () => {
     await syncQuizWithBackend("published")
@@ -839,8 +955,103 @@ export default function EditQuiz({
   return (
     <div className="mx-auto max-w-4xl px-4 pb-28 pt-8 sm:px-6 lg:px-8">
       <Button asChild variant="ghost" size="sm" className="mb-4 -ml-2">
-        <Link to="/">Назад</Link>
+        <Link to={dashboardBackTo}>Назад</Link>
       </Button>
+
+      <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>Выберите папку</DialogTitle>
+          </DialogHeader>
+
+          {foldersDialogLoading ? (
+            <p className="text-sm text-muted-foreground">Загрузка папок…</p>
+          ) : (
+            <div className="flex items-start gap-2">
+              <Popover
+                open={folderComboboxOpen}
+                onOpenChange={setFolderComboboxOpen}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={folderComboboxOpen}
+                    className="min-w-0 flex-1 justify-between bg-white"
+                  >
+                    <span className="truncate">
+                      {selectedFolderName || "Выберите папку…"}
+                    </span>
+                    <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+                  <Command>
+                    <CommandInput placeholder="Поиск папки…" />
+                    <CommandList>
+                      <CommandEmpty>Папки не найдены</CommandEmpty>
+                      <CommandGroup>
+                        {dialogFolders.map((folder) => (
+                          <CommandItem
+                            key={folder.id}
+                            value={folder.name}
+                            onSelect={() => {
+                              setSelectedFolderId(folder.id)
+                              setFolderComboboxOpen(false)
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 size-4",
+                                selectedFolderId === folder.id
+                                  ? "opacity-100"
+                                  : "opacity-0"
+                              )}
+                            />
+                            {folder.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="Создать папку"
+                onClick={() => void handleCreateFolderInDialog()}
+              >
+                <Plus />
+              </Button>
+            </div>
+          )}
+
+          {folderDialogError && (
+            <p className="text-sm text-destructive">{folderDialogError}</p>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setFolderDialogOpen(false)}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              className={cn(ACCENT_BUTTON_CLASS)}
+              disabled={isSavingQuiz || foldersDialogLoading || !selectedFolderId}
+              onClick={() => void handleConfirmSaveToFolder()}
+            >
+              {isSavingQuiz ? "Сохранение…" : "Сохранить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {isLoadingQuiz && (
         <p className="mb-4 text-sm text-muted-foreground">Загрузка викторины...</p>

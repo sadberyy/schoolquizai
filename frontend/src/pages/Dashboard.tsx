@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react"
-import { Link } from "react-router-dom"
+import { useCallback, useEffect, useState } from "react"
+import { Link, useSearchParams } from "react-router-dom"
 import type { User } from "@/types/user"
 import {
+  ArrowLeft,
   BarChart3,
-  ClipboardList,
+  Folder,
   Pencil,
   Presentation,
   Trash2,
@@ -14,10 +15,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { authFetch, loginUser, registerUser } from "@/lib/auth"
-import { readApiError } from "@/lib/quizApi"
+import { loginUser, registerUser } from "@/lib/auth"
+import {
+  createFolder,
+  deleteFolder,
+  deleteQuiz,
+  getFolders,
+  listQuizzesInFolder,
+  renameFolder,
+  type QuizFolder,
+  type QuizListItem,
+} from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { API_BASE_URL } from "@/lib/api"
 
 export type { User } from "@/types/user"
 
@@ -41,16 +50,32 @@ const ACCENT_BUTTON_CLASS =
 
 export default function Dashboard({
   user,
-  quizzes: quizzesProp,
   onLogin,
   onLogout,
   onDeleteQuiz,
 }: DashboardProps) {
-  const [quizzes, setQuizzes] = useState<DashboardQuiz[]>(quizzesProp ?? [])
+  const [searchParams, setSearchParams] = useSearchParams()
+  const folderIdFromUrl = searchParams.get("folder_id")
+
+  const [folders, setFolders] = useState<QuizFolder[]>([])
+  const [foldersLoading, setFoldersLoading] = useState(false)
+  const [foldersError, setFoldersError] = useState("")
+
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null)
+  const [activeFolderName, setActiveFolderName] = useState("")
+
+  const [quizzes, setQuizzes] = useState<QuizListItem[]>([])
   const [quizzesLoading, setQuizzesLoading] = useState(false)
   const [quizzesError, setQuizzesError] = useState("")
   const [deleteError, setDeleteError] = useState("")
   const [isDeletingQuizId, setIsDeletingQuizId] = useState<string | null>(null)
+
+  const [showNewFolderInput, setShowNewFolderInput] = useState(false)
+  const [newFolderName, setNewFolderName] = useState("")
+  const [folderActionError, setFolderActionError] = useState("")
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null)
+  const [renameFolderValue, setRenameFolderValue] = useState("")
+  const [isFolderActionLoading, setIsFolderActionLoading] = useState(false)
 
   const [loginEmail, setLoginEmail] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
@@ -67,41 +92,77 @@ export default function Dashboard({
   const [registerGeneralError, setRegisterGeneralError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
 
+  const isInsideFolder = Boolean(activeFolderId)
+
+  const loadFolders = useCallback(async () => {
+    setFoldersLoading(true)
+    setFoldersError("")
+    try {
+      const list = await getFolders()
+      setFolders(list)
+      return list
+    } catch (err) {
+      setFoldersError(
+        err instanceof Error ? err.message : "Не удалось загрузить папки"
+      )
+      return []
+    } finally {
+      setFoldersLoading(false)
+    }
+  }, [])
+
+  const loadQuizzesInFolder = useCallback(async (folderId: string) => {
+    setQuizzesLoading(true)
+    setQuizzesError("")
+    setDeleteError("")
+    try {
+      const list = await listQuizzesInFolder(folderId)
+      setQuizzes(list)
+    } catch (err) {
+      setQuizzesError(
+        err instanceof Error ? err.message : "Не удалось загрузить викторины"
+      )
+    } finally {
+      setQuizzesLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!user) return
+    void loadFolders()
+  }, [user, loadFolders])
 
-    let ignore = false
-
-    async function loadQuizzes() {
-      setQuizzesLoading(true)
-      setQuizzesError("")
-      setDeleteError("")
-      try {
-        const response = await authFetch(`${API_BASE_URL}/quiz/list`)
-        if (!response.ok) {
-          throw new Error(
-            await readApiError(response, "Ошибка загрузки викторин")
-          )
-        }
-        const data = (await response.json()) as { quizzes?: DashboardQuiz[] }
-        if (!ignore) setQuizzes(data.quizzes ?? [])
-      } catch (err) {
-        if (ignore) return
-        setQuizzesError(
-          err instanceof Error ? err.message : "Не удалось загрузить викторины"
-        )
-        // Оставляем текущие данные (возможно, это mock), но показываем ошибку.
-      } finally {
-        if (!ignore) setQuizzesLoading(false)
+  useEffect(() => {
+    if (!user || !folderIdFromUrl) {
+      if (!folderIdFromUrl) {
+        setActiveFolderId(null)
+        setActiveFolderName("")
       }
+      return
     }
 
-    void loadQuizzes()
+    setActiveFolderId(folderIdFromUrl)
 
-    return () => {
-      ignore = true
+    const folderFromList = folders.find((f) => f.id === folderIdFromUrl)
+    if (folderFromList) {
+      setActiveFolderName(folderFromList.name)
     }
-  }, [user])
+
+    void loadQuizzesInFolder(folderIdFromUrl)
+  }, [user, folderIdFromUrl, folders, loadQuizzesInFolder])
+
+  const openFolder = (folder: QuizFolder) => {
+    setActiveFolderId(folder.id)
+    setActiveFolderName(folder.name)
+    setSearchParams({ folder_id: folder.id })
+  }
+
+  const goBackToFolders = () => {
+    setActiveFolderId(null)
+    setActiveFolderName("")
+    setQuizzes([])
+    setSearchParams({})
+  }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -176,20 +237,91 @@ export default function Dashboard({
     onLogout()
   }
 
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim()
+    if (!name) return
+
+    setFolderActionError("")
+    setIsFolderActionLoading(true)
+    try {
+      await createFolder(name)
+      setNewFolderName("")
+      setShowNewFolderInput(false)
+      await loadFolders()
+    } catch (err) {
+      setFolderActionError(
+        err instanceof Error ? err.message : "Не удалось создать папку"
+      )
+    } finally {
+      setIsFolderActionLoading(false)
+    }
+  }
+
+  const startRenameFolder = (folder: QuizFolder, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setRenamingFolderId(folder.id)
+    setRenameFolderValue(folder.name)
+    setFolderActionError("")
+  }
+
+  const submitRenameFolder = async (folderId: string) => {
+    const name = renameFolderValue.trim()
+    if (!name) return
+
+    setIsFolderActionLoading(true)
+    setFolderActionError("")
+    try {
+      await renameFolder(folderId, name)
+      setRenamingFolderId(null)
+      const list = await loadFolders()
+      if (activeFolderId === folderId) {
+        const updated = list.find((f) => f.id === folderId)
+        if (updated) setActiveFolderName(updated.name)
+      }
+    } catch (err) {
+      setFolderActionError(
+        err instanceof Error ? err.message : "Не удалось переименовать папку"
+      )
+    } finally {
+      setIsFolderActionLoading(false)
+    }
+  }
+
+  const handleDeleteFolder = async (
+    folder: QuizFolder,
+    e: React.MouseEvent
+  ) => {
+    e.stopPropagation()
+    const confirmed = window.confirm(
+      `Удалить папку «${folder.name}» и все викторины в ней?`
+    )
+    if (!confirmed) return
+
+    setFolderActionError("")
+    setIsFolderActionLoading(true)
+    try {
+      await deleteFolder(folder.id)
+      if (activeFolderId === folder.id) {
+        goBackToFolders()
+      }
+      await loadFolders()
+    } catch (err) {
+      setFolderActionError(
+        err instanceof Error ? err.message : "Не удалось удалить папку"
+      )
+    } finally {
+      setIsFolderActionLoading(false)
+    }
+  }
+
   const handleDeleteQuiz = async (quizId: string) => {
     setDeleteError("")
     setIsDeletingQuizId(quizId)
     try {
-      const response = await authFetch(`${API_BASE_URL}/quiz/${quizId}`, {
-        method: "DELETE",
-      })
-
-      if (!response.ok) {
-        throw new Error(await readApiError(response, "Ошибка удаления"))
-      }
-
+      await deleteQuiz(quizId)
       setQuizzes((prev) => prev.filter((q) => q.id !== quizId))
       onDeleteQuiz(quizId)
+      await loadFolders()
     } catch (err) {
       setDeleteError(
         err instanceof Error ? err.message : "Не удалось удалить викторину"
@@ -198,6 +330,11 @@ export default function Dashboard({
       setIsDeletingQuizId(null)
     }
   }
+
+  const editLink = (quizId: string) =>
+    activeFolderId
+      ? `/edit/${quizId}?folder_id=${encodeURIComponent(activeFolderId)}`
+      : `/edit/${quizId}`
 
   if (!user) {
     return (
@@ -353,83 +490,297 @@ export default function Dashboard({
         </Button>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold sm:text-3xl">Мои викторины</h1>
-        <Button asChild className={ACCENT_BUTTON_CLASS}>
-          <Link to="/create">Создать викторину</Link>
-        </Button>
-      </div>
-
-      {deleteError && (
-        <p className="mb-4 text-sm text-destructive">{deleteError}</p>
-      )}
-
-      {quizzes.length === 0 ? (
-        <Card className={cn("py-12", CARD_CLASS)}>
-          <CardContent className="flex flex-col items-center gap-3 text-center">
-            <ClipboardList className="size-12 text-muted-foreground" />
-            <p className="text-lg text-muted-foreground">
-              У вас пока нет викторин
-            </p>
-            <Button asChild className={ACCENT_BUTTON_CLASS}>
-              <Link to="/create">Создать первую викторину</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {quizzes.map((quiz) => (
-            <Card
-              key={quiz.id}
-              className={cn(
-                CARD_CLASS,
-                "transition-shadow duration-200 hover:shadow-lg"
-              )}
+      {isInsideFolder ? (
+        <>
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={goBackToFolders}
             >
-              <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-lg font-semibold">{quiz.title}</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button asChild variant="outline" size="sm">
-                    <Link to={`/edit/${quiz.id}`}>
-                      <Pencil />
-                      Редактировать
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm">
-                    <Link to={`/teacher/${quiz.id}`}>
-                      <Presentation />
-                      Показ
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline" size="sm">
-                    <Link to={`/results/${quiz.id}`}>
-                      <BarChart3 />
-                      Результаты
-                    </Link>
+              <ArrowLeft />
+              Назад
+            </Button>
+            <h1 className="text-2xl font-bold sm:text-3xl">
+              {activeFolderName || "Папка"}
+            </h1>
+          </div>
+
+          <div className="mb-6 flex flex-wrap justify-end gap-3">
+            <Button asChild className={ACCENT_BUTTON_CLASS}>
+              <Link to="/create">Создать викторину</Link>
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+            <h1 className="text-2xl font-bold sm:text-3xl">Мои папки</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              {!showNewFolderInput ? (
+                <Button
+                  type="button"
+                  className={ACCENT_BUTTON_CLASS}
+                  onClick={() => {
+                    setShowNewFolderInput(true)
+                    setFolderActionError("")
+                  }}
+                >
+                  Новая папка
+                </Button>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    placeholder="Название папки"
+                    className="w-48 bg-white"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleCreateFolder()
+                      if (e.key === "Escape") {
+                        setShowNewFolderInput(false)
+                        setNewFolderName("")
+                      }
+                    }}
+                    autoFocus
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    className={ACCENT_BUTTON_CLASS}
+                    disabled={isFolderActionLoading || !newFolderName.trim()}
+                    onClick={() => void handleCreateFolder()}
+                  >
+                    Создать
                   </Button>
                   <Button
                     type="button"
+                    size="sm"
                     variant="outline"
-                    size="icon"
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={() => handleDeleteQuiz(quiz.id)}
-                    aria-label="Удалить викторину"
-                    disabled={isDeletingQuizId === quiz.id}
+                    onClick={() => {
+                      setShowNewFolderInput(false)
+                      setNewFolderName("")
+                    }}
                   >
-                    <Trash2 className="size-4" />
+                    Отмена
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+              )}
+              <Button asChild className={ACCENT_BUTTON_CLASS}>
+                <Link to="/create">Создать викторину</Link>
+              </Button>
+            </div>
+          </div>
+        </>
       )}
 
-      {quizzesLoading && (
-        <p className="mt-4 text-sm text-muted-foreground">Загрузка...</p>
+      {(folderActionError || deleteError) && (
+        <p className="mb-4 text-sm text-destructive">
+          {folderActionError || deleteError}
+        </p>
       )}
-      {quizzesError && (
-        <p className="mt-2 text-sm text-destructive">{quizzesError}</p>
+
+      {!isInsideFolder && (
+        <>
+          {folders.length === 0 && !foldersLoading ? (
+            <Card className={cn("py-12", CARD_CLASS)}>
+              <CardContent className="flex flex-col items-center gap-3 text-center">
+                <Folder className="size-12 text-muted-foreground" />
+                <p className="text-lg text-muted-foreground">
+                  У вас пока нет папок
+                </p>
+                <Button
+                  type="button"
+                  className={ACCENT_BUTTON_CLASS}
+                  onClick={() => setShowNewFolderInput(true)}
+                >
+                  Создать первую папку
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {folders.map((folder) => (
+                <Card
+                  key={folder.id}
+                  className={cn(
+                    CARD_CLASS,
+                    "cursor-pointer transition-shadow duration-200 hover:shadow-lg"
+                  )}
+                  onClick={() => {
+                    if (renamingFolderId === folder.id) return
+                    openFolder(folder)
+                  }}
+                >
+                  <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    {renamingFolderId === folder.id ? (
+                      <div
+                        className="flex flex-1 flex-wrap items-center gap-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Input
+                          value={renameFolderValue}
+                          onChange={(e) =>
+                            setRenameFolderValue(e.target.value)
+                          }
+                          className="max-w-xs bg-white"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              void submitRenameFolder(folder.id)
+                            }
+                            if (e.key === "Escape") {
+                              setRenamingFolderId(null)
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          className={ACCENT_BUTTON_CLASS}
+                          disabled={isFolderActionLoading}
+                          onClick={() => void submitRenameFolder(folder.id)}
+                        >
+                          Сохранить
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Folder className="size-5 shrink-0 text-quiz-accent" />
+                        <p className="text-lg font-semibold">{folder.name}</p>
+                        {folder.quizzes_count != null && (
+                          <span className="text-sm text-muted-foreground">
+                            ({folder.quizzes_count})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div
+                      className="flex gap-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="Переименовать папку"
+                        onClick={(e) => startRenameFolder(folder, e)}
+                        disabled={isFolderActionLoading}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label="Удалить папку"
+                        onClick={(e) => void handleDeleteFolder(folder, e)}
+                        disabled={isFolderActionLoading}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {foldersLoading && (
+            <p className="mt-4 text-sm text-muted-foreground">Загрузка…</p>
+          )}
+          {foldersError && (
+            <p className="mt-2 text-sm text-destructive">{foldersError}</p>
+          )}
+        </>
+      )}
+
+      {isInsideFolder && (
+        <>
+          {quizzes.length === 0 && !quizzesLoading ? (
+            <Card className={cn("py-12", CARD_CLASS)}>
+              <CardContent className="flex flex-col items-center gap-3 text-center">
+                <p className="text-lg text-muted-foreground">
+                  В этой папке пока нет викторин
+                </p>
+                <Button asChild className={ACCENT_BUTTON_CLASS}>
+                  <Link to="/create">Создать викторину</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {quizzes.map((quiz) => (
+                <Card
+                  key={quiz.id}
+                  className={cn(
+                    CARD_CLASS,
+                    "transition-shadow duration-200 hover:shadow-lg"
+                  )}
+                >
+                  <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-lg font-semibold">{quiz.title}</p>
+                    <div className="dashboard-quiz-actions flex flex-wrap gap-2">
+                      <Button
+                        asChild
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-8 shrink-0 whitespace-normal"
+                      >
+                        <Link to={editLink(quiz.id)}>
+                          <Pencil />
+                          Редактировать
+                        </Link>
+                      </Button>
+                      <Button
+                        asChild
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-8 shrink-0 whitespace-normal"
+                      >
+                        <Link to={`/teacher/${quiz.id}`}>
+                          <Presentation />
+                          Показ
+                        </Link>
+                      </Button>
+                      <Button
+                        asChild
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-8 shrink-0 whitespace-normal"
+                      >
+                        <Link to={`/results/${quiz.id}`}>
+                          <BarChart3 />
+                          Результаты
+                        </Link>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-auto min-h-8 shrink-0 whitespace-normal text-muted-foreground hover:text-destructive"
+                        onClick={() => void handleDeleteQuiz(quiz.id)}
+                        disabled={isDeletingQuizId === quiz.id}
+                      >
+                        <Trash2 className="size-4" />
+                        Удалить
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {quizzesLoading && (
+            <p className="mt-4 text-sm text-muted-foreground">Загрузка…</p>
+          )}
+          {quizzesError && (
+            <p className="mt-2 text-sm text-destructive">{quizzesError}</p>
+          )}
+        </>
       )}
     </div>
   )

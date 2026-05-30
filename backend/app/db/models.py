@@ -42,8 +42,21 @@ class User(Base):
     name = Column(String, nullable=False)                # имя учителя
     email = Column(String, unique=True, nullable=False)  # почта для входа
     password_hash = Column(String, nullable=False)       # хеш пароля
-
+    
+    folders = relationship("Folder", back_populates="teacher", cascade="all, delete-orphan")
     quizzes = relationship("Quiz", back_populates="teacher", cascade="all, delete-orphan")
+
+# папкии для викторин
+class Folder(Base):
+    __tablename__ = "folders"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    teacher_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    teacher = relationship("User", back_populates="folders")
+    quizzes = relationship("Quiz", back_populates="folder")
 
 
 # quizzes - настройки викторины (не вопросы)
@@ -52,7 +65,7 @@ class Quiz(Base):
 
     id = Column(String, primary_key=True, default=generate_uuid)
     teacher_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
-
+    folder_id = Column(String, ForeignKey("folders.id", ondelete="SET NULL"), nullable=True) # папка
     title = Column(String, nullable=False)                # тема
     subject = Column(String, nullable=True)               # предмет
     grade = Column(String, nullable=True)                 # класс
@@ -61,10 +74,12 @@ class Quiz(Base):
     question_time_seconds = Column(Integer, nullable=True) # время на один вопрос
     max_attempts = Column(Integer, default=1)             # число попыток
     status = Column(String, default="draft")              # draft / published
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     teacher = relationship("User", back_populates="quizzes")
     questions = relationship("Question", back_populates="quiz", cascade="all, delete-orphan")
     results = relationship("Result", back_populates="quiz", cascade="all, delete-orphan")
+    folder = relationship("Folder", back_populates="quizzes")
 
 
 # questions - сгенерированные и отредактированные вопросы
