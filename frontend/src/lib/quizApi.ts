@@ -1,4 +1,7 @@
 import type { QuestionType, QuizQuestion } from "@/types/quiz"
+import type { QuestionType, QuizQuestion } from "@/types/quiz"
+import { authFetch } from "@/lib/auth"
+import { API_BASE_URL } from "@/lib/api"
 
 export async function readApiError(
   response: Response,
@@ -123,4 +126,74 @@ export function mapResultsFromApi(rows: ApiQuizResultRow[]) {
     elapsedSeconds: Number(row.duration_seconds) || 0,
     attemptNumber: Number(row.attempt_number) || 1,
   }))
+}
+
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024 // 5 MB
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const
+
+export function validateImageFile(file: File): string | null {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_TYPES)[number])) {
+    return "Поддерживаются только JPG, PNG и WebP"
+  }
+  if (file.size > MAX_IMAGE_SIZE_BYTES) {
+    return "Размер изображения не должен превышать 5 MB"
+  }
+  return null
+}
+
+/**
+ * Загружает изображение к вопросу.
+ * Возвращает URL загруженного изображения (как вернул бэкенд).
+ */
+export async function uploadQuestionImage(params: {
+  quizId: string
+  questionId: string
+  file: File
+}): Promise<string> {
+  const { quizId, questionId, file } = params
+
+  const validationError = validateImageFile(file)
+  if (validationError) {
+    throw new Error(validationError)
+  }
+
+  const formData = new FormData()
+  formData.append("file", file)
+
+  const response = await authFetch(
+    `${API_BASE_URL}/quiz/${quizId}/questions/${questionId}/image`,
+    {
+      method: "POST",
+      body: formData,
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Ошибка загрузки изображения"))
+  }
+
+  const data = (await response.json()) as { image_url?: string }
+  if (!data.image_url) {
+    throw new Error("Бэкенд не вернул URL изображения")
+  }
+  return data.image_url
+}
+
+/**
+ * Удаляет изображение у вопроса.
+ */
+export async function deleteQuestionImage(params: {
+  quizId: string
+  questionId: string
+}): Promise<void> {
+  const { quizId, questionId } = params
+
+  const response = await authFetch(
+    `${API_BASE_URL}/quiz/${quizId}/questions/${questionId}/image`,
+    { method: "DELETE" }
+  )
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Ошибка удаления изображения"))
+  }
 }

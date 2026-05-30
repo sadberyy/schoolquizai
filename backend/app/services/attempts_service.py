@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from sqlalchemy.orm import defer
 
 from app.db.database import get_db_session
 from app.db.models import Quiz, Question, Result
@@ -82,8 +83,15 @@ def get_quiz_questions(quiz_id: str) -> list[dict]:
     with get_db_session() as session:
         questions = (
             session.query(Question)
+            .options(defer(Question.image))
             .filter(Question.quiz_id == quiz_id)
             .order_by(Question.order_idx)
+            .all()
+        )
+
+        image_flags = dict(
+            session.query(Question.id, Question.image.isnot(None))
+            .filter(Question.quiz_id == quiz_id)
             .all()
         )
 
@@ -95,6 +103,7 @@ def get_quiz_questions(quiz_id: str) -> list[dict]:
                 "answers": q.answers,
                 "points": q.points,
                 "order_idx": q.order_idx,
+                "has_image": image_flags.get(q.id, False)
             }
             for q in questions
         ]

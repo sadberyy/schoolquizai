@@ -6,6 +6,9 @@ import re
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from fastapi import Response
+from sqlalchemy.orm import defer
+
 from app.core.deps import (
     CurrentUser,
     get_current_user,
@@ -32,6 +35,7 @@ from app.services.attempts_service import (
     finish_quiz,
     get_quiz_results,
 )
+from app.services.image_service import image_service
 
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
@@ -89,7 +93,12 @@ def _quiz_public_meta(quiz: Quiz) -> dict:
     }
 
 
-def _quiz_full_payload(quiz: Quiz, questions: list[Question]) -> dict:
+def _quiz_full_payload(
+    quiz: Quiz,
+    questions: list[Question],
+    image_flags: dict[str, bool] | None = None,
+) -> dict:
+    image_flags = image_flags or {}
     def format_source_for_display(value: str | None) -> str:
         if not value:
             return ""
@@ -143,6 +152,7 @@ def _quiz_full_payload(quiz: Quiz, questions: list[Question]) -> dict:
                     q.points,
                 ),
                 "order_idx": q.order_idx,
+                "has_image": image_flags.get(q.id, False)
             }
             for q in questions
         ],
@@ -452,12 +462,19 @@ def get_quiz(
 
         questions = (
             session.query(Question)
+            .options(defer(Question.image))
             .filter(Question.quiz_id == quiz_id)
             .order_by(Question.order_idx)
             .all()
         )
 
-        return _quiz_full_payload(quiz, questions)
+        image_flags = dict(
+            session.query(Question.id, Question.image.isnot(None))
+            .filter(Question.quiz_id == quiz_id)
+            .all()
+        )
+
+        return _quiz_full_payload(quiz, questions, image_flags)
 
 
 # сохранение отредактированной викторины
@@ -628,6 +645,87 @@ def delete_question(
         session.commit()
     
     return {"ok": True, "deleted_question_id": question_id}
+
+
+@router.post("/{quiz_id}/questions/{question_id}/image")
+async def upload_question_image(
+    quiz_id: str,
+    question_id: str,
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Загружает картинку для вопроса (сжимает в WebP, хранит в БД как data URI)."""
+    require_quiz_owner(quiz_id, current_user.id)
+
+    data_uri = await image_service.compress_upload_to_data_uri(file)
+
+    with get_db_session() as session:
+        question = session.query(Question).filter(
+            Question.id == question_id,
+            Question.quiz_id == quiz_id,
+        ).first()
+
+        if not question:
+            raise HTTPException(status_code=404, detail="Вопрос не найден")
+
+        question.image = data_uri
+        session.commit()
+
+        logger.info(
+            f"IMAGE_UPLOADED | quiz_id={quiz_id} | question_id={question_id} | "
+            f"size_bytes={len(data_uri)}"
+        )
+
+    return {"ok": True, "question_id": question_id}
+
+
+@router.delete("/{quiz_id}/questions/{question_id}/image")
+def delete_question_image(
+    quiz_id: str,
+    question_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Удаляет картинку из вопроса."""
+    require_quiz_owner(quiz_id, current_user.id)
+
+    with get_db_session() as session:
+        question = session.query(Question).filter(
+            Question.id == question_id,
+            Question.quiz_id == quiz_id,
+        ).first()
+
+        if not question:
+            raise HTTPException(status_code=404, detail="Вопрос не найден")
+
+        question.image = None
+        session.commit()
+
+    return {"ok": True, "question_id": question_id}
+
+
+@router.get("/{quiz_id}/questions/{question_id}/image")
+def get_question_image(quiz_id: str, question_id: str):
+    """
+    Отдаёт картинку вопроса как бинарный файл с правильным Content-Type.
+    Публичный эндпоинт — ученикам тоже нужен доступ во время прохождения.
+    """
+    with get_db_session() as session:
+        question = session.query(Question).filter(
+            Question.id == question_id,
+            Question.quiz_id == quiz_id,
+        ).first()
+
+        if not question or not question.image:
+            raise HTTPException(status_code=404, detail="Картинка не найдена")
+
+        binary, mime = image_service.decode_data_uri(question.image)
+
+    return Response(
+        content=binary,
+        media_type=mime,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
 
 @router.delete("/{quiz_id}")
 def delete_quiz(quiz_id: str, current_user: CurrentUser = Depends(get_current_user)):

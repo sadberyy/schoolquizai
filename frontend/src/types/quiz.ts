@@ -17,6 +17,8 @@ export interface QuizQuestion {
   source: string
   options: QuizAnswerOption[]
   explanation: string
+  hasImage?: boolean
+  imageUrl?: string | null
 }
 
 export interface QuizData {

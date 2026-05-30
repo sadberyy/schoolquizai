@@ -81,6 +81,7 @@ class Question(Base):
     source_fragment = Column(Text, nullable=True)          # источник (для учителя)
     points = Column(Integer, default=1)                    # баллы за правильный ответ
     order_idx = Column(Integer, default=0)                 # порядок внутри викторины
+    image = Column(Text, nullable=True)                    # картинка в формате base64 data URI
 
     quiz = relationship("Quiz", back_populates="questions")
 
