@@ -150,43 +150,163 @@
 }
 
 .large-font {
+  font-size: 125% !important;
+}
+
+.large-font .lf-text,
+.large-font p.lf-text,
+.large-font span.lf-text,
+.large-font h1.lf-text,
+.large-font h2.lf-text,
+.large-font h3.lf-text {
+  font-size: 150% !important;
+  line-height: 1.35 !important;
+}
+
+.large-font .dashboard-user-name {
   font-size: 150% !important;
 }
-.large-font button,
-.large-font .btn,
-.large-font [role="button"] {
-  font-size: 150% !important;
-  padding: 16px 32px !important;
-  min-height: 56px !important;
-  min-width: 56px !important;
+
+.large-font .dashboard-action-btn,
+.large-font a.dashboard-action-btn {
+  font-size: 125% !important;
+  padding: 12px 20px !important;
+  min-height: 48px !important;
+  min-width: unset !important;
 }
+
+.large-font .dashboard-quiz-actions a,
+.large-font .dashboard-quiz-actions button,
+.large-font .dashboard-quiz-btn {
+  font-size: 125% !important;
+  height: auto !important;
+  min-height: 48px !important;
+  white-space: normal !important;
+  line-height: 1.3 !important;
+  padding: 10px 16px !important;
+}
+
+.large-font .lf-back-btn {
+  font-size: 125% !important;
+  padding: 10px 16px !important;
+  min-height: 44px !important;
+  min-width: unset !important;
+}
+
+.large-font .lf-timer {
+  font-size: 200% !important;
+  line-height: 1.2 !important;
+}
+
+.large-font .lf-stat-card,
+.large-font .lf-stat-card p,
+.large-font .lf-stat-card [data-slot="card-title"] {
+  font-size: 150% !important;
+}
+
+.large-font .edit-quiz-page {
+  padding-bottom: 14rem !important;
+}
+
+.large-font .edit-quiz-footer button {
+  font-size: 115% !important;
+  padding: 8px 14px !important;
+  min-height: 42px !important;
+  min-width: unset !important;
+}
+
+.large-font .edit-quiz-footer [data-slot="select-trigger"] {
+  font-size: 115% !important;
+  height: auto !important;
+  min-height: 42px !important;
+  min-width: 10rem !important;
+  width: auto !important;
+  padding: 8px 12px !important;
+}
+
+.large-font .edit-quiz-footer .flex.flex-wrap {
+  gap: 0.5rem 0.75rem !important;
+}
+
+.large-font input.lf-radio,
+.large-font input[type="radio"].lf-radio {
+  width: 1.35em !important;
+  height: 1.35em !important;
+  min-height: unset !important;
+  min-width: unset !important;
+  padding: 0 !important;
+}
+
+.large-font .option-points-label {
+  font-size: 125% !important;
+}
+
+.large-font .student-intro-title {
+  font-size: 180% !important;
+}
+
+.large-font .student-intro-start-btn {
+  font-size: 135% !important;
+  min-height: 52px !important;
+  padding: 14px 24px !important;
+}
+
+.large-font .student-result-content p,
+.large-font .student-result-content [data-slot="card-title"] {
+  font-size: 150% !important;
+}
+
+.large-font button:not([data-size="icon"]):not([data-size="icon-sm"]):not([data-size="icon-xs"]),
+.large-font [role="button"]:not([data-size="icon"]) {
+  font-size: 125% !important;
+  padding: 10px 18px !important;
+  min-height: 48px !important;
+}
+
+.large-font button[data-size="icon"],
+.large-font button[data-size="icon-sm"],
+.large-font button[data-size="icon-xs"] {
+  min-width: 48px !important;
+  min-height: 48px !important;
+  padding: 10px !important;
+}
+
 .large-font input,
 .large-font select,
 .large-font textarea {
-  font-size: 150% !important;
-  padding: 12px 16px !important;
-  min-height: 48px !important;
+  font-size: 125% !important;
+  padding: 10px 14px !important;
+  min-height: 44px !important;
 }
+
 .large-font table,
 .large-font th,
 .large-font td {
-  font-size: 150% !important;
+  font-size: 125% !important;
 }
-.large-font svg,
-.large-font .icon,
-.large-font [class*="lucide"] {
-  width: 1.5em !important;
-  height: 1.5em !important;
+
+.large-font svg:not(.lf-no-scale),
+.large-font .icon:not(.lf-no-scale),
+.large-font [class*="lucide"]:not(.lf-no-scale) {
+  width: 1.35em !important;
+  height: 1.35em !important;
 }
-.large-font h1 { font-size: 250% !important; }
-.large-font h2 { font-size: 220% !important; }
-.large-font h3 { font-size: 200% !important; }
-.large-font label { font-size: 150% !important; }
-.large-font .card { padding: 24px !important; }
-.large-font .dashboard-quiz-actions a,
-.large-font .dashboard-quiz-actions button {
+
+.large-font h1 { font-size: 200% !important; }
+.large-font h2 { font-size: 180% !important; }
+.large-font h3 { font-size: 165% !important; }
+.large-font label { font-size: 125% !important; }
+.large-font .card { padding: 20px !important; }
+
+.quiz-option-btn {
   height: auto !important;
-  min-height: 56px !important;
   white-space: normal !important;
-  line-height: 1.3 !important;
+  text-align: left !important;
+}
+
+.quiz-option-text {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }

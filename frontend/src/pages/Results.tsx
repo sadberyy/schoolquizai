@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 import { ArrowDown, ArrowUp, ArrowUpDown, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { API_BASE_URL } from "@/lib/api"
+import { truncateDisplayName } from "@/lib/displayText"
+import { resolveFolderBackUrl } from "@/lib/navigation"
 import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
 import { buildDownloadFilename } from "@/lib/downloadFilename"
 import { mapResultsFromApi, readApiError } from "@/lib/quizApi"
@@ -156,8 +158,13 @@ function SortIcon({
 
 export default function Results({ quizData, results }: ResultsProps) {
   const { quizId: routeQuizId } = useParams<{ quizId: string }>()
+  const [searchParams] = useSearchParams()
+  const folderIdFromUrl = searchParams.get("folder_id")
 
   const [quizTitle, setQuizTitle] = useState(quizData?.title ?? "Викторина")
+  const [quizFolderId, setQuizFolderId] = useState<string | null>(
+    quizData?.folderId ?? null
+  )
   const [fallbackMaxScore, setFallbackMaxScore] = useState(
     quizData?.maxScore ?? 0
   )
@@ -200,6 +207,7 @@ export default function Results({ quizData, results }: ResultsProps) {
 
         const quizJson = (await quizRes.json()) as {
           title?: string
+          folder_id?: string | null
           questions?: { points?: number }[]
         }
         const resultsJson = (await resultsRes.json()) as {
@@ -209,6 +217,7 @@ export default function Results({ quizData, results }: ResultsProps) {
         if (ignore) return
 
         setQuizTitle(quizJson.title ?? "Викторина")
+        setQuizFolderId(quizJson.folder_id ?? null)
 
         const computedMax = (quizJson.questions ?? []).reduce(
           (sum, q) => sum + (Number(q.points) || 0),
@@ -296,10 +305,12 @@ export default function Results({ quizData, results }: ResultsProps) {
   const headerButtonClass =
     "inline-flex items-center gap-1.5 font-semibold hover:text-quiz-accent"
 
+  const backToDashboard = resolveFolderBackUrl(folderIdFromUrl, quizFolderId)
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-      <Button asChild variant="ghost" size="sm" className="mb-4 -ml-2">
-        <Link to="/">Назад</Link>
+      <Button asChild variant="ghost" size="sm" className="lf-back-btn mb-4 -ml-2">
+        <Link to={backToDashboard}>Назад</Link>
       </Button>
 
       {isLoading && (
@@ -319,8 +330,10 @@ export default function Results({ quizData, results }: ResultsProps) {
 
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold sm:text-3xl">{quizTitle}</h1>
-          <p className="mt-2 text-lg text-muted-foreground">
+          <h1 className="min-w-0 break-words text-2xl font-bold sm:text-3xl [overflow-wrap:anywhere]">
+            {truncateDisplayName(quizTitle)}
+          </h1>
+          <p className="lf-text mt-2 text-lg text-muted-foreground">
             Результаты учеников
           </p>
         </div>
@@ -343,14 +356,14 @@ export default function Results({ quizData, results }: ResultsProps) {
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Card className={CARD_CLASS}>
+        <Card className={cn(CARD_CLASS, "lf-stat-card")}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-muted-foreground">
+            <CardTitle className="lf-text text-base font-medium text-muted-foreground">
               Средний балл
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">
+            <p className="lf-text text-3xl font-bold">
               {averageScore}{" "}
               <span className="text-lg font-normal text-muted-foreground">
                 из {maxScore}
@@ -358,14 +371,14 @@ export default function Results({ quizData, results }: ResultsProps) {
             </p>
           </CardContent>
         </Card>
-        <Card className={CARD_CLASS}>
+        <Card className={cn(CARD_CLASS, "lf-stat-card")}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-muted-foreground">
+            <CardTitle className="lf-text text-base font-medium text-muted-foreground">
               Всего учеников
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{normalizedResults.length}</p>
+            <p className="lf-text text-3xl font-bold">{normalizedResults.length}</p>
           </CardContent>
         </Card>
       </div>

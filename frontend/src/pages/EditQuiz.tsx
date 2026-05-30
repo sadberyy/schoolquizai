@@ -45,6 +45,7 @@ import {
   type QuizFolder,
   type UpdateQuizRequest,
 } from "@/lib/api"
+import { resolveFolderBackUrl } from "@/lib/navigation"
 import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
 import { buildDownloadFilename } from "@/lib/downloadFilename"
 import { readApiError } from "@/lib/quizApi"
@@ -464,6 +465,9 @@ export default function EditQuiz({
   const [folderComboboxOpen, setFolderComboboxOpen] = useState(false)
   const [folderDialogError, setFolderDialogError] = useState("")
   const [foldersDialogLoading, setFoldersDialogLoading] = useState(false)
+  const [showNewFolderField, setShowNewFolderField] = useState(false)
+  const [newFolderDialogName, setNewFolderDialogName] = useState("")
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false)
 
   useEffect(() => {
     if (!quizData) return
@@ -715,24 +719,38 @@ export default function EditQuiz({
         )
       }
 
-      const originalQuestionIds = backendQuestionIdsRef.current
+      const updateResult = (await updateQuizRes.json().catch(() => ({}))) as {
+        quiz_id?: string
+        duplicated?: boolean
+      }
+      const isDuplicated = updateResult.duplicated === true
+      const targetQuizId =
+        isDuplicated && updateResult.quiz_id
+          ? updateResult.quiz_id
+          : resolvedQuizId
+
+      const originalQuestionIds = isDuplicated
+        ? new Set<string>()
+        : backendQuestionIdsRef.current
       const currentQuestionIds = new Set(quiz.questions.map((q) => q.id))
 
       const deletedQuestionIds = [...originalQuestionIds].filter(
         (id) => !currentQuestionIds.has(id)
       )
 
-      for (const questionId of deletedQuestionIds) {
-        const deleteRes = await authFetch(
-          `${API_BASE_URL}/quiz/${resolvedQuizId}/questions/${questionId}`,
-          { method: "DELETE" }
-        )
-        if (!deleteRes.ok) {
-          const errBody = await deleteRes.json().catch(() => ({}))
-          throw new Error(
-            (errBody as { detail?: string }).detail ??
-              `Ошибка удаления вопроса: ${deleteRes.status}`
+      if (!isDuplicated) {
+        for (const questionId of deletedQuestionIds) {
+          const deleteRes = await authFetch(
+            `${API_BASE_URL}/quiz/${targetQuizId}/questions/${questionId}`,
+            { method: "DELETE" }
           )
+          if (!deleteRes.ok) {
+            const errBody = await deleteRes.json().catch(() => ({}))
+            throw new Error(
+              (errBody as { detail?: string }).detail ??
+                `Ошибка удаления вопроса: ${deleteRes.status}`
+            )
+          }
         }
       }
 
@@ -746,7 +764,7 @@ export default function EditQuiz({
           )
 
           const putRes = await authFetch(
-            `${API_BASE_URL}/quiz/${resolvedQuizId}/questions/${q.id}`,
+            `${API_BASE_URL}/quiz/${targetQuizId}/questions/${q.id}`,
             {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
@@ -765,7 +783,7 @@ export default function EditQuiz({
           const createPayload = frontendQuestionToBackendCreatePayload(q)
 
           const postRes = await authFetch(
-            `${API_BASE_URL}/quiz/${resolvedQuizId}/questions`,
+            `${API_BASE_URL}/quiz/${targetQuizId}/questions`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -795,7 +813,7 @@ export default function EditQuiz({
           )
 
           const putRes = await authFetch(
-            `${API_BASE_URL}/quiz/${resolvedQuizId}/questions/${created.question_id}`,
+            `${API_BASE_URL}/quiz/${targetQuizId}/questions/${created.question_id}`,
             {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
@@ -814,7 +832,7 @@ export default function EditQuiz({
       }
 
       // Обновляем состояние после синхронизации (чтобы получить реальные question_id)
-      const refreshedRes = await authFetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`)
+      const refreshedRes = await authFetch(`${API_BASE_URL}/quiz/${targetQuizId}`)
       if (!refreshedRes.ok) {
         const errBody = await refreshedRes.json().catch(() => ({}))
         throw new Error(
@@ -851,6 +869,8 @@ export default function EditQuiz({
     setFolderDialogError("")
     setFoldersDialogLoading(true)
     setFolderDialogOpen(true)
+    setShowNewFolderField(false)
+    setNewFolderDialogName("")
 
     try {
       const list = await getFolders()
@@ -870,19 +890,27 @@ export default function EditQuiz({
   }
 
   const handleCreateFolderInDialog = async () => {
-    const name = window.prompt("Название новой папки")
-    if (!name?.trim()) return
+    const name = newFolderDialogName.trim()
+    if (!name) {
+      setFolderDialogError("Введите название папки")
+      return
+    }
 
     setFolderDialogError("")
+    setIsCreatingFolder(true)
     try {
-      const created = await createFolder(name.trim())
+      const created = await createFolder(name)
       const list = await getFolders()
       setDialogFolders(list)
       setSelectedFolderId(created.id)
+      setShowNewFolderField(false)
+      setNewFolderDialogName("")
     } catch (err) {
       setFolderDialogError(
         err instanceof Error ? err.message : "Не удалось создать папку"
       )
+    } finally {
+      setIsCreatingFolder(false)
     }
   }
 
@@ -906,10 +934,7 @@ export default function EditQuiz({
     void openFolderDialog()
   }
 
-  const dashboardBackTo =
-    returnFolderId ?? quizFolderId
-      ? `/?folder_id=${encodeURIComponent(returnFolderId ?? quizFolderId ?? "")}`
-      : "/"
+  const dashboardBackTo = resolveFolderBackUrl(returnFolderId, quizFolderId)
 
   const selectedFolderName =
     dialogFolders.find((f) => f.id === selectedFolderId)?.name ?? ""
@@ -953,8 +978,8 @@ export default function EditQuiz({
     Math.max(min, Number(value) || fallback)
 
   return (
-    <div className="mx-auto max-w-4xl px-4 pb-28 pt-8 sm:px-6 lg:px-8">
-      <Button asChild variant="ghost" size="sm" className="mb-4 -ml-2">
+    <div className="edit-quiz-page mx-auto max-w-4xl px-4 pb-40 pt-8 sm:px-6 lg:px-8">
+      <Button asChild variant="ghost" size="sm" className="lf-back-btn mb-4 -ml-2">
         <Link to={dashboardBackTo}>Назад</Link>
       </Button>
 
@@ -1022,10 +1047,41 @@ export default function EditQuiz({
                 variant="outline"
                 size="icon"
                 aria-label="Создать папку"
-                onClick={() => void handleCreateFolderInDialog()}
+                onClick={() => {
+                  setShowNewFolderField((v) => !v)
+                  setFolderDialogError("")
+                }}
               >
                 <Plus />
               </Button>
+            </div>
+          )}
+
+          {showNewFolderField && !foldersDialogLoading && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="new-folder-dialog-name">Название новой папки</Label>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  id="new-folder-dialog-name"
+                  value={newFolderDialogName}
+                  onChange={(e) => setNewFolderDialogName(e.target.value)}
+                  placeholder="Введите название"
+                  className="min-w-0 flex-1 bg-white"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleCreateFolderInDialog()
+                  }}
+                  autoFocus
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  className={cn(ACCENT_BUTTON_CLASS)}
+                  disabled={isCreatingFolder || !newFolderDialogName.trim()}
+                  onClick={() => void handleCreateFolderInDialog()}
+                >
+                  {isCreatingFolder ? "Создание…" : "Создать"}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -1202,7 +1258,7 @@ export default function EditQuiz({
           <Card key={question.id} className={cn(QUESTION_CARD_CLASS, "card")}>
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-3">
-                <CardTitle className="text-base font-semibold">
+                <CardTitle className="lf-text text-base font-semibold">
                   Вопрос №{index + 1}
                 </CardTitle>
                 <div className="flex shrink-0 items-center gap-1">
@@ -1251,7 +1307,7 @@ export default function EditQuiz({
                     <SelectItem value="trueFalse">True/False</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-sm text-muted-foreground">
+                <p className="lf-text text-sm text-muted-foreground">
                   {QUESTION_TYPE_LABELS[question.type]}
                 </p>
               </div>
@@ -1310,7 +1366,7 @@ export default function EditQuiz({
                           onChange={() =>
                             setSingleCorrect(question.id, option.id)
                           }
-                          className="size-4 shrink-0 accent-quiz-accent"
+                          className="lf-radio size-4 shrink-0 accent-quiz-accent"
                         />
                       )}
 
@@ -1347,7 +1403,7 @@ export default function EditQuiz({
                           className="w-20"
                           title="Баллы"
                         />
-                        <span className="text-xs whitespace-nowrap text-muted-foreground">
+                        <span className="lf-text option-points-label text-xs whitespace-nowrap text-muted-foreground">
                           балл.
                         </span>
                       </div>
@@ -1407,7 +1463,7 @@ export default function EditQuiz({
         ))}
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-50 border-t-2 border-quiz-card-border bg-white/95 px-4 py-3 shadow-lg backdrop-blur-sm">
+      <div className="edit-quiz-footer fixed inset-x-0 bottom-0 z-50 border-t-2 border-quiz-card-border bg-white/95 px-4 py-3 shadow-lg backdrop-blur-sm">
         <div className="mx-auto max-w-4xl">
           {exportingFormat && (
             <p

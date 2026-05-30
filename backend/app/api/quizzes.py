@@ -585,6 +585,63 @@ class UpdateQuestionRequest(BaseModel):
     order_idx: int | None = None
 
 
+def _duplicate_quiz_to_folder(
+    session,
+    quiz: Quiz,
+    target_folder_id: str,
+    data: "UpdateQuizRequest",
+) -> Quiz:
+    """Копирует викторину в другую папку, не изменяя оригинал."""
+    new_quiz = Quiz(
+        teacher_id=quiz.teacher_id,
+        folder_id=target_folder_id,
+        title=data.title if data.title is not None else quiz.title,
+        subject=quiz.subject,
+        grade=quiz.grade,
+        difficulty=data.difficulty if data.difficulty is not None else quiz.difficulty,
+        full_time_seconds=(
+            data.full_time_seconds
+            if data.full_time_seconds is not None
+            else quiz.full_time_seconds
+        ),
+        question_time_seconds=(
+            data.question_time_seconds
+            if data.question_time_seconds is not None
+            else quiz.question_time_seconds
+        ),
+        max_attempts=(
+            data.max_attempts if data.max_attempts is not None else quiz.max_attempts
+        ),
+        status=data.status if data.status is not None else quiz.status,
+    )
+    session.add(new_quiz)
+    session.flush()
+
+    source_questions = (
+        session.query(Question)
+        .filter(Question.quiz_id == quiz.id)
+        .order_by(Question.order_idx)
+        .all()
+    )
+    for q in source_questions:
+        session.add(
+            Question(
+                quiz_id=new_quiz.id,
+                question_text=q.question_text,
+                question_type=q.question_type,
+                answers=q.answers,
+                correct_answers=q.correct_answers,
+                explanation=q.explanation,
+                source_fragment=q.source_fragment,
+                points=q.points,
+                order_idx=q.order_idx,
+            )
+        )
+
+    session.flush()
+    return new_quiz
+
+
 @router.put("/{quiz_id}")
 def update_quiz(
     quiz_id: str,
@@ -596,6 +653,15 @@ def update_quiz(
         quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
         if not quiz:
             raise HTTPException(status_code=404, detail="Викторина не найдена")
+
+        if (
+            data.folder_id is not None
+            and quiz.folder_id is not None
+            and data.folder_id != quiz.folder_id
+        ):
+            new_quiz = _duplicate_quiz_to_folder(session, quiz, data.folder_id, data)
+            session.commit()
+            return {"ok": True, "quiz_id": new_quiz.id, "duplicated": True}
 
         if data.title is not None:
             quiz.title = data.title

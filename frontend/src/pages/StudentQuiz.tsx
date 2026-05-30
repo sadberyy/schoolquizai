@@ -607,7 +607,7 @@ export default function StudentQuiz({
       <div className="flex min-h-screen items-center justify-center px-4 py-8">
         <Card className="w-full max-w-md border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
           <CardHeader>
-            <CardTitle className="text-center text-2xl">
+            <CardTitle className="student-intro-title text-center text-2xl">
               {quiz.title}
             </CardTitle>
           </CardHeader>
@@ -635,7 +635,7 @@ export default function StudentQuiz({
             )}
             <Button
               type="button"
-              className={cn("mt-2 w-full", ACCENT_BUTTON_CLASS)}
+              className={cn("student-intro-start-btn mt-2 w-full", ACCENT_BUTTON_CLASS)}
               disabled={!canStart || isStarting || isLoadingMeta}
               onClick={handleStart}
             >
@@ -652,33 +652,33 @@ export default function StudentQuiz({
       <div className="flex min-h-screen items-center justify-center px-4 py-8">
         <Card className="w-full max-w-lg border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl sm:text-3xl">
+            <CardTitle className="lf-text text-2xl sm:text-3xl">
               {participantName.trim()}, ваш результат
             </CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4 text-center text-lg">
+          <CardContent className="student-result-content flex flex-col gap-4 text-center text-lg">
             {timeExpired && (
-              <p className="text-sm font-medium text-destructive">Время вышло.</p>
+              <p className="lf-text text-sm font-medium text-destructive">Время вышло.</p>
             )}
-            <p>
+            <p className="lf-text">
               <span className="font-semibold">Баллы:</span> {score} из{" "}
               {maxScore}
             </p>
             {quiz.timerMode !== "none" ? (
-              <p>
+              <p className="lf-text">
                 <span className="font-semibold">Затраченное время:</span>{" "}
                 {formatElapsed(elapsedSeconds)}
               </p>
             ) : (
-              <p>
+              <p className="lf-text">
                 <span className="font-semibold">Затраченное время:</span> —
               </p>
             )}
-            <p>
+            <p className="lf-text">
               <span className="font-semibold">Номер попытки:</span>{" "}
               {attemptNumber}
             </p>
-            <p className="text-sm text-muted-foreground">
+            <p className="lf-text text-sm text-muted-foreground">
               Попытка {attemptNumber} из {quiz.attempts}
             </p>
 
@@ -729,27 +729,27 @@ export default function StudentQuiz({
       )}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         {quiz.timerMode === "total" && quiz.totalTimer > 0 && (
-          <div className="rounded-lg border-2 border-quiz-card-border bg-white/90 px-3 py-1.5 text-sm font-medium sm:text-base">
+          <div className="lf-text rounded-lg border-2 border-quiz-card-border bg-white/90 px-3 py-1.5 text-sm font-medium sm:text-base">
             Общее время: {formatTimer(totalTimeLeft)}
           </div>
         )}
-        <p className="text-base font-medium text-muted-foreground sm:text-lg">
+        <p className="lf-text text-base font-medium text-muted-foreground sm:text-lg">
           Попытка {attemptNumber} из {quiz.attempts}
         </p>
         {quiz.timerMode === "per_question" && quiz.timerPerQuestion > 0 && (
-          <div className="rounded-lg border-2 border-quiz-card-border bg-white/90 px-3 py-1.5 text-sm font-medium sm:text-base">
+          <div className="lf-text rounded-lg border-2 border-quiz-card-border bg-white/90 px-3 py-1.5 text-sm font-medium sm:text-base">
             На вопрос: {formatTimer(questionTimeLeft)}
           </div>
         )}
       </div>
 
-      <p className="mb-4 text-center text-lg text-muted-foreground sm:text-xl">
+      <p className="lf-text mb-4 text-center text-lg text-muted-foreground sm:text-xl">
         Вопрос {questionIndex + 1} / {totalQuestions}
       </p>
 
       <Card className="border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
         <CardContent className="flex flex-col gap-5 pt-6">
-          <p className="text-sm font-medium text-muted-foreground sm:text-base">
+          <p className="lf-text text-sm font-medium text-muted-foreground sm:text-base">
             {QUESTION_TYPE_HINTS[currentQuestion.type]}
           </p>
           <h2 className="text-xl font-semibold leading-snug sm:text-2xl">
@@ -767,12 +767,14 @@ export default function StudentQuiz({
                   disabled={hasSubmitted}
                   onClick={() => toggleOption(option.id)}
                   className={cn(
-                    "min-h-14 w-full justify-start rounded-xl border-2 border-quiz-card-border bg-white px-5 py-3 text-left text-base font-medium transition-colors hover:bg-quiz-card-border/15 sm:min-h-16 sm:text-lg",
+                    "quiz-option-btn h-auto min-h-14 w-full justify-start whitespace-normal rounded-xl border-2 border-quiz-card-border bg-white px-5 py-3 text-left text-base font-medium transition-colors hover:bg-quiz-card-border/15 sm:min-h-16 sm:text-lg",
                     isSelected &&
                       "border-quiz-accent bg-quiz-accent/10 ring-2 ring-quiz-accent/30"
                   )}
                 >
-                  <MathText className="text-left">{option.text}</MathText>
+                  <MathText className="quiz-option-text min-w-0 flex-1 break-words text-left [overflow-wrap:anywhere]">
+                    {option.text}
+                  </MathText>
                 </Button>
               )
             })}

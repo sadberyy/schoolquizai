@@ -26,7 +26,15 @@ import {
   type QuizFolder,
   type QuizListItem,
 } from "@/lib/api"
+import { formatFolderDisplayName, truncateDisplayName } from "@/lib/displayText"
 import { cn } from "@/lib/utils"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 export type { User } from "@/types/user"
 
@@ -76,6 +84,7 @@ export default function Dashboard({
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null)
   const [renameFolderValue, setRenameFolderValue] = useState("")
   const [isFolderActionLoading, setIsFolderActionLoading] = useState(false)
+  const [folderToDelete, setFolderToDelete] = useState<QuizFolder | null>(null)
 
   const [loginEmail, setLoginEmail] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
@@ -287,23 +296,23 @@ export default function Dashboard({
     }
   }
 
-  const handleDeleteFolder = async (
-    folder: QuizFolder,
-    e: React.MouseEvent
-  ) => {
+  const handleDeleteFolder = (folder: QuizFolder, e: React.MouseEvent) => {
     e.stopPropagation()
-    const confirmed = window.confirm(
-      `Удалить папку «${folder.name}» и все викторины в ней?`
-    )
-    if (!confirmed) return
+    setFolderActionError("")
+    setFolderToDelete(folder)
+  }
+
+  const confirmDeleteFolder = async () => {
+    if (!folderToDelete) return
 
     setFolderActionError("")
     setIsFolderActionLoading(true)
     try {
-      await deleteFolder(folder.id)
-      if (activeFolderId === folder.id) {
+      await deleteFolder(folderToDelete.id)
+      if (activeFolderId === folderToDelete.id) {
         goBackToFolders()
       }
+      setFolderToDelete(null)
       await loadFolders()
     } catch (err) {
       setFolderActionError(
@@ -331,10 +340,21 @@ export default function Dashboard({
     }
   }
 
+
   const editLink = (quizId: string) =>
     activeFolderId
       ? `/edit/${quizId}?folder_id=${encodeURIComponent(activeFolderId)}`
       : `/edit/${quizId}`
+
+  const teacherLink = (quizId: string) =>
+    activeFolderId
+      ? `/teacher/${quizId}?folder_id=${encodeURIComponent(activeFolderId)}`
+      : `/teacher/${quizId}`
+
+  const resultsLink = (quizId: string) =>
+    activeFolderId
+      ? `/results/${quizId}?folder_id=${encodeURIComponent(activeFolderId)}`
+      : `/results/${quizId}`
 
   if (!user) {
     return (
@@ -484,7 +504,7 @@ export default function Dashboard({
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 py-6 sm:px-8 sm:py-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-lg font-medium">{user.name}</p>
+        <p className="dashboard-user-name lf-text text-lg font-medium">{user.name}</p>
         <Button type="button" variant="secondary" size="sm" onClick={handleLogout}>
           Выйти
         </Button>
@@ -502,13 +522,13 @@ export default function Dashboard({
               <ArrowLeft />
               Назад
             </Button>
-            <h1 className="text-2xl font-bold sm:text-3xl">
+            <h1 className="lf-text text-2xl font-bold sm:text-3xl">
               {activeFolderName || "Папка"}
             </h1>
           </div>
 
           <div className="mb-6 flex flex-wrap justify-end gap-3">
-            <Button asChild className={ACCENT_BUTTON_CLASS}>
+            <Button asChild className={cn(ACCENT_BUTTON_CLASS, "dashboard-action-btn")}>
               <Link to="/create">Создать викторину</Link>
             </Button>
           </div>
@@ -521,7 +541,7 @@ export default function Dashboard({
               {!showNewFolderInput ? (
                 <Button
                   type="button"
-                  className={ACCENT_BUTTON_CLASS}
+                  className={cn(ACCENT_BUTTON_CLASS, "dashboard-action-btn")}
                   onClick={() => {
                     setShowNewFolderInput(true)
                     setFolderActionError("")
@@ -567,7 +587,7 @@ export default function Dashboard({
                   </Button>
                 </div>
               )}
-              <Button asChild className={ACCENT_BUTTON_CLASS}>
+              <Button asChild className={cn(ACCENT_BUTTON_CLASS, "dashboard-action-btn")}>
                 <Link to="/create">Создать викторину</Link>
               </Button>
             </div>
@@ -646,11 +666,16 @@ export default function Dashboard({
                         </Button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
                         <Folder className="size-5 shrink-0 text-quiz-accent" />
-                        <p className="text-lg font-semibold">{folder.name}</p>
+                        <p
+                          className="lf-text min-w-0 flex-1 break-words text-lg font-semibold [overflow-wrap:anywhere]"
+                          title={folder.name}
+                        >
+                          {formatFolderDisplayName(folder.name)}
+                        </p>
                         {folder.quizzes_count != null && (
-                          <span className="text-sm text-muted-foreground">
+                          <span className="lf-text shrink-0 text-sm text-muted-foreground">
                             ({folder.quizzes_count})
                           </span>
                         )}
@@ -676,7 +701,7 @@ export default function Dashboard({
                         size="icon"
                         className="text-muted-foreground hover:text-destructive"
                         aria-label="Удалить папку"
-                        onClick={(e) => void handleDeleteFolder(folder, e)}
+                        onClick={(e) => handleDeleteFolder(folder, e)}
                         disabled={isFolderActionLoading}
                       >
                         <Trash2 className="size-4" />
@@ -705,7 +730,7 @@ export default function Dashboard({
                 <p className="text-lg text-muted-foreground">
                   В этой папке пока нет викторин
                 </p>
-                <Button asChild className={ACCENT_BUTTON_CLASS}>
+                <Button asChild className={cn(ACCENT_BUTTON_CLASS, "dashboard-action-btn")}>
                   <Link to="/create">Создать викторину</Link>
                 </Button>
               </CardContent>
@@ -721,13 +746,18 @@ export default function Dashboard({
                   )}
                 >
                   <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-lg font-semibold">{quiz.title}</p>
-                    <div className="dashboard-quiz-actions flex flex-wrap gap-2">
+                    <p
+                      className="lf-text min-w-0 flex-1 break-words text-lg font-semibold [overflow-wrap:anywhere]"
+                      title={quiz.title}
+                    >
+                      {truncateDisplayName(quiz.title)}
+                    </p>
+                    <div className="dashboard-quiz-actions flex shrink-0 flex-wrap gap-2">
                       <Button
                         asChild
                         variant="outline"
                         size="sm"
-                        className="h-auto min-h-8 shrink-0 whitespace-normal"
+                        className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal"
                       >
                         <Link to={editLink(quiz.id)}>
                           <Pencil />
@@ -738,9 +768,9 @@ export default function Dashboard({
                         asChild
                         variant="outline"
                         size="sm"
-                        className="h-auto min-h-8 shrink-0 whitespace-normal"
+                        className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal"
                       >
-                        <Link to={`/teacher/${quiz.id}`}>
+                        <Link to={teacherLink(quiz.id)}>
                           <Presentation />
                           Показ
                         </Link>
@@ -749,9 +779,9 @@ export default function Dashboard({
                         asChild
                         variant="outline"
                         size="sm"
-                        className="h-auto min-h-8 shrink-0 whitespace-normal"
+                        className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal"
                       >
-                        <Link to={`/results/${quiz.id}`}>
+                        <Link to={resultsLink(quiz.id)}>
                           <BarChart3 />
                           Результаты
                         </Link>
@@ -760,7 +790,7 @@ export default function Dashboard({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-auto min-h-8 shrink-0 whitespace-normal text-muted-foreground hover:text-destructive"
+                        className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal text-muted-foreground hover:text-destructive"
                         onClick={() => void handleDeleteQuiz(quiz.id)}
                         disabled={isDeletingQuizId === quiz.id}
                       >
@@ -782,6 +812,41 @@ export default function Dashboard({
           )}
         </>
       )}
+
+      <Dialog
+        open={folderToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setFolderToDelete(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>Удалить папку?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Папка «{folderToDelete?.name}» и все викторины в ней будут удалены.
+            Это действие нельзя отменить.
+          </p>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setFolderToDelete(null)}
+              disabled={isFolderActionLoading}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void confirmDeleteFolder()}
+              disabled={isFolderActionLoading}
+            >
+              {isFolderActionLoading ? "Удаление…" : "Удалить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
