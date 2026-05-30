@@ -27,11 +27,12 @@ def generate_uuid() -> str:
 
 # Включаем поддержку внешних ключей для SQLite при каждом подключении
 @event.listens_for(Engine, "connect")
-def _fk_pragma_on_connect(dbapi_connection, _):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
-
+def _fk_pragma_on_connect(dbapi_connection, connection_record):
+    # проверяем, что это SQLite (у postgresql нет execute)
+    if hasattr(dbapi_connection, 'execute'):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 # users - учителя (регистрация и вход)
 class User(Base):
