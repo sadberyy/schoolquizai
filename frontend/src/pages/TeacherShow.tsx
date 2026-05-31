@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 import { Check, Pause, Play, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { API_BASE_URL } from "@/lib/api"
+import { resolveFolderBackUrl } from "@/lib/navigation"
 import { authFetch } from "@/lib/auth"
 import { readApiError } from "@/lib/quizApi"
 import { MathText } from "@/components/MathText"
@@ -74,6 +75,8 @@ function getCorrectAnswersText(question: QuizQuestion): string {
 
 export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps) {
   const { quizId } = useParams<{ quizId: string }>()
+  const [searchParams] = useSearchParams()
+  const folderIdFromUrl = searchParams.get("folder_id")
   const [loadedQuiz, setLoadedQuiz] = useState<QuizData | null>(
     quizDataProp ?? null
   )
@@ -129,6 +132,11 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
   const quiz = useMemo(
     () => normalizeQuizData(loadedQuiz ?? EMPTY_QUIZ),
     [loadedQuiz]
+  )
+
+  const backToDashboard = resolveFolderBackUrl(
+    folderIdFromUrl,
+    loadedQuiz?.folderId
   )
 
   const [stage, setStage] = useState<TeacherStage>("setup")
@@ -250,20 +258,20 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
 
     if (!isRevealed) {
       return cn(
-        "min-h-16 w-full justify-start rounded-xl border-2 border-quiz-card-border bg-white px-6 py-4 text-left text-lg font-medium transition-colors hover:bg-quiz-card-border/15",
+        "h-auto min-h-16 w-full justify-start whitespace-normal rounded-xl border-2 border-quiz-card-border bg-white px-6 py-4 text-left text-lg font-medium transition-colors hover:bg-quiz-card-border/15",
         isSelected && "border-quiz-accent bg-quiz-accent/10 ring-2 ring-quiz-accent/30"
       )
     }
 
     if (isCorrect) {
-      return "min-h-16 w-full justify-start rounded-xl border-2 border-green-600 bg-green-100 px-6 py-4 text-left text-lg font-medium text-green-900"
+      return "h-auto min-h-16 w-full justify-start whitespace-normal rounded-xl border-2 border-green-600 bg-green-100 px-6 py-4 text-left text-lg font-medium text-green-900"
     }
 
     if (isSelected) {
-      return "min-h-16 w-full justify-start rounded-xl border-2 border-red-600 bg-red-100 px-6 py-4 text-left text-lg font-medium text-red-900"
+      return "h-auto min-h-16 w-full justify-start whitespace-normal rounded-xl border-2 border-red-600 bg-red-100 px-6 py-4 text-left text-lg font-medium text-red-900"
     }
 
-    return "min-h-16 w-full justify-start rounded-xl border-2 border-quiz-card-border/50 bg-white/80 px-6 py-4 text-left text-lg font-medium text-muted-foreground"
+    return "h-auto min-h-16 w-full justify-start whitespace-normal rounded-xl border-2 border-quiz-card-border/50 bg-white/80 px-6 py-4 text-left text-lg font-medium text-muted-foreground"
   }
 
   if (isLoadingQuiz) {
@@ -281,7 +289,7 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
           {loadError || "Викторина не найдена"}
         </p>
         <Button asChild variant="outline">
-          <Link to="/">К списку викторин</Link>
+          <Link to={backToDashboard}>К списку викторин</Link>
         </Button>
       </div>
     )
@@ -294,9 +302,9 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
           asChild
           variant="ghost"
           size="sm"
-          className="absolute top-4 left-4 text-muted-foreground"
+          className="lf-back-btn absolute top-4 left-4 text-muted-foreground"
         >
-          <Link to="/">Выйти</Link>
+          <Link to={backToDashboard}>Выйти</Link>
         </Button>
 
         <Card className="w-full border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
@@ -367,14 +375,14 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
           asChild
           variant="ghost"
           size="sm"
-          className="absolute top-4 left-4 text-muted-foreground"
+          className="lf-back-btn absolute top-4 left-4 text-muted-foreground"
         >
-          <Link to="/">Выйти</Link>
+          <Link to={backToDashboard}>Выйти</Link>
         </Button>
 
         <Card className="mx-auto max-w-3xl border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
           <CardContent className="flex flex-col items-center gap-6 py-10 text-center">
-            <h2 className="text-2xl font-bold sm:text-3xl">Вопросы завершены</h2>
+            <h2 className="lf-text text-2xl font-bold sm:text-3xl">Вопросы завершены</h2>
             <Button
               type="button"
               className={cn(ACCENT_BUTTON_CLASS)}
@@ -395,9 +403,9 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
           asChild
           variant="ghost"
           size="sm"
-          className="absolute top-4 left-4 text-muted-foreground"
+          className="lf-back-btn absolute top-4 left-4 text-muted-foreground"
         >
-          <Link to="/">Выйти</Link>
+          <Link to={backToDashboard}>Выйти</Link>
         </Button>
 
         <h2 className="mb-6 text-center text-2xl font-bold sm:text-3xl">
@@ -450,14 +458,14 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
         asChild
         variant="ghost"
         size="sm"
-        className="absolute top-4 left-4 text-muted-foreground"
+        className="lf-back-btn absolute top-4 left-4 text-muted-foreground"
       >
-        <Link to="/">Выйти</Link>
+        <Link to={backToDashboard}>Выйти</Link>
       </Button>
 
       <header className="mb-8 pt-8 text-center sm:pt-0">
         <h1 className="text-2xl font-bold sm:text-3xl">{quiz.title}</h1>
-        <p className="mt-2 text-lg text-muted-foreground sm:text-xl">
+        <p className="lf-text mt-2 text-lg text-muted-foreground sm:text-xl">
           Вопрос {questionIndex + 1} из {totalQuestions}
         </p>
       </header>
@@ -467,7 +475,7 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
           <CardContent className="flex flex-col gap-6 pt-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-medium text-muted-foreground sm:text-base">
+                <p className="lf-text text-sm font-medium text-muted-foreground sm:text-base">
                   {QUESTION_TYPE_HINTS[currentQuestion.type]}
                 </p>
                 <h2 className="mt-3 text-xl font-semibold leading-snug sm:text-2xl">
@@ -477,7 +485,7 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
 
               {timerEnabled && (
                 <div className="flex items-center gap-2 rounded-lg border-2 border-quiz-card-border bg-white px-3 py-2">
-                  <span className="text-xl font-bold tabular-nums">
+                  <span className="lf-timer text-xl font-bold tabular-nums">
                     {formatTimer(timeLeft)}
                   </span>
                   <Button
@@ -508,10 +516,12 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
                     variant="outline"
                     disabled={isRevealed}
                     onClick={() => toggleOption(option.id)}
-                    className={getOptionClassName(option.id, option.isCorrect)}
+                    className={cn(getOptionClassName(option.id, option.isCorrect), "quiz-option-btn")}
                   >
-                    <span className="flex w-full items-center justify-between gap-4">
-                      <MathText className="text-left">{option.text}</MathText>
+                    <span className="flex w-full min-w-0 items-start justify-between gap-4">
+                      <MathText className="quiz-option-text min-w-0 flex-1 break-words text-left [overflow-wrap:anywhere]">
+                        {option.text}
+                      </MathText>
                       <span className="flex shrink-0 items-center gap-2">
                         {showCheck && <Check className="size-6 text-green-700" aria-hidden />}
                         {showCross && <X className="size-6 text-red-700" aria-hidden />}
@@ -536,10 +546,10 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
             {isRevealed && currentQuestion.explanation.trim() && (
               <Card className="border border-quiz-card-border/60 bg-muted/40 shadow-none">
                 <CardContent className="pt-4">
-                  <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  <p className="lf-text mb-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                     Пояснение
                   </p>
-                  <MathText as="p" className="text-lg">
+                  <MathText as="p" className="lf-text text-lg">
                     {currentQuestion.explanation}
                   </MathText>
                 </CardContent>
@@ -557,7 +567,7 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
             )}
 
             {isRevealed && isLastQuestion && (
-              <p className="text-center text-lg font-medium text-muted-foreground">
+              <p className="lf-text text-center text-lg font-medium text-muted-foreground">
                 Викторина окончена
               </p>
             )}

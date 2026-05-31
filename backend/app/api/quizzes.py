@@ -18,7 +18,7 @@ from app.core.deps import (
 from app.core.http_utils import content_disposition_attachment
 from app.core.logger import logger
 from app.db.database import get_db_session
-from app.db.models import Quiz, Question, Result
+from app.db.models import Quiz, Question, Result, Folder
 from app.schemas.quiz import DifficultyLevel
 from app.schemas.material import SourceFragment
 from app.services.material_service import material_service
@@ -137,6 +137,7 @@ def _quiz_full_payload(
         "question_time_seconds": quiz.question_time_seconds,
         "max_attempts": quiz.max_attempts,
         "status": quiz.status,
+        "folder_id": quiz.folder_id,
         "questions": [
             {
                 "id": q.id,
@@ -159,16 +160,107 @@ def _quiz_full_payload(
     }
 
 
-# список всех викторин для дашборда
-@router.get("/list")
-def list_quizzes(current_user: CurrentUser = Depends(get_current_user)):
+# Папки
+class CreateFolderRequest(BaseModel):
+    name: str
+
+@router.get("/folders")
+def list_folders(current_user: CurrentUser = Depends(get_current_user)):
+    # получения списка папок
     with get_db_session() as session:
-        quizzes = (
-            session.query(Quiz)
-            .filter(Quiz.teacher_id == current_user.id)
-            .order_by(Quiz.id.desc())
+        folders = (
+            session.query(Folder)
+            .filter(Folder.teacher_id == current_user.id)
+            .order_by(Folder.updated_at.desc())
             .all()
         )
+        return {
+            "folders": [
+                {
+                    "id": f.id,
+                    "name": f.name,
+                    "quizzes_count": len(f.quizzes),
+                    "updated_at": str(f.updated_at),
+                }
+                for f in folders
+            ]
+        }
+
+
+@router.post("/folders")
+def create_folder(
+    data: CreateFolderRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Создать папку"""
+    with get_db_session() as session:
+        folder = Folder(teacher_id=current_user.id, name=data.name)
+        session.add(folder)
+        session.flush()
+        saved_folder_id = folder.id
+        saved_name = folder.name
+
+        session.commit()
+
+    return {"ok": True, "folder_id": saved_folder_id, "name": saved_name}
+
+
+@router.put("/folders/{folder_id}")
+def rename_folder(
+    folder_id: str,
+    name: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    # переименовать папку
+    with get_db_session() as session:
+        folder = session.query(Folder).filter(
+            Folder.id == folder_id,
+            Folder.teacher_id == current_user.id,
+        ).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Папка не найдена")
+        folder.name = name
+        session.commit()
+    return {"ok": True}
+
+
+@router.delete("/folders/{folder_id}")
+def delete_folder(
+    folder_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    # удалить папку с викторинами в ней
+    with get_db_session() as session:
+        folder = session.query(Folder).filter(
+            Folder.id == folder_id,
+            Folder.teacher_id == current_user.id,
+        ).first()
+        if not folder:
+            raise HTTPException(status_code=404, detail="Папка не найдена")
+
+        quizzes = session.query(Quiz).filter(Quiz.folder_id == folder_id).all()
+        for quiz in quizzes:
+            session.query(Result).filter(Result.quiz_id == quiz.id).delete()
+            session.query(Question).filter(Question.quiz_id == quiz.id).delete()
+
+        session.query(Quiz).filter(Quiz.folder_id == folder_id).delete()
+        session.delete(folder)
+        session.commit()
+
+    return {"ok": True, "deleted_folder_id": folder_id}
+
+
+# список всех викторин для дашборда
+@router.get("/list")
+def list_quizzes(
+    folder_id: str | None = None,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Список викторин учителя (можно фильтровать по папке)"""
+    with get_db_session() as session:
+        query = session.query(Quiz).filter(Quiz.teacher_id == current_user.id)
+        query = query.filter(Quiz.folder_id == folder_id)
+        quizzes = query.order_by(Quiz.updated_at.desc()).all()
         
         return {
             "quizzes": [
@@ -179,8 +271,9 @@ def list_quizzes(current_user: CurrentUser = Depends(get_current_user)):
                     "grade": q.grade,
                     "difficulty": q.difficulty,
                     "status": q.status,
+                    "folder_id": q.folder_id,
                     "questions_count": len(q.questions),
-                    "created_at": str(q.id),  # временно, пока нет поля created_at
+                    "updated_at": str(q.updated_at) if q.updated_at else str(q.id),
                 }
                 for q in quizzes
             ]
@@ -485,6 +578,7 @@ class UpdateQuizRequest(BaseModel):
     question_time_seconds: int | None = None
     max_attempts: int | None = None
     status: str | None = None
+    folder_id: str | None = None
 
 
 class CreateQuestionRequest(BaseModel):
@@ -508,6 +602,63 @@ class UpdateQuestionRequest(BaseModel):
     order_idx: int | None = None
 
 
+def _duplicate_quiz_to_folder(
+    session,
+    quiz: Quiz,
+    target_folder_id: str,
+    data: "UpdateQuizRequest",
+) -> Quiz:
+    """Копирует викторину в другую папку, не изменяя оригинал."""
+    new_quiz = Quiz(
+        teacher_id=quiz.teacher_id,
+        folder_id=target_folder_id,
+        title=data.title if data.title is not None else quiz.title,
+        subject=quiz.subject,
+        grade=quiz.grade,
+        difficulty=data.difficulty if data.difficulty is not None else quiz.difficulty,
+        full_time_seconds=(
+            data.full_time_seconds
+            if data.full_time_seconds is not None
+            else quiz.full_time_seconds
+        ),
+        question_time_seconds=(
+            data.question_time_seconds
+            if data.question_time_seconds is not None
+            else quiz.question_time_seconds
+        ),
+        max_attempts=(
+            data.max_attempts if data.max_attempts is not None else quiz.max_attempts
+        ),
+        status=data.status if data.status is not None else quiz.status,
+    )
+    session.add(new_quiz)
+    session.flush()
+
+    source_questions = (
+        session.query(Question)
+        .filter(Question.quiz_id == quiz.id)
+        .order_by(Question.order_idx)
+        .all()
+    )
+    for q in source_questions:
+        session.add(
+            Question(
+                quiz_id=new_quiz.id,
+                question_text=q.question_text,
+                question_type=q.question_type,
+                answers=q.answers,
+                correct_answers=q.correct_answers,
+                explanation=q.explanation,
+                source_fragment=q.source_fragment,
+                points=q.points,
+                order_idx=q.order_idx,
+            )
+        )
+
+    session.flush()
+    return new_quiz
+
+
 @router.put("/{quiz_id}")
 def update_quiz(
     quiz_id: str,
@@ -519,6 +670,15 @@ def update_quiz(
         quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
         if not quiz:
             raise HTTPException(status_code=404, detail="Викторина не найдена")
+
+        if (
+            data.folder_id is not None
+            and quiz.folder_id is not None
+            and data.folder_id != quiz.folder_id
+        ):
+            new_quiz = _duplicate_quiz_to_folder(session, quiz, data.folder_id, data)
+            session.commit()
+            return {"ok": True, "quiz_id": new_quiz.id, "duplicated": True}
 
         if data.title is not None:
             quiz.title = data.title
@@ -532,6 +692,8 @@ def update_quiz(
             quiz.max_attempts = data.max_attempts
         if data.status is not None:
             quiz.status = data.status
+        if data.folder_id is not None:
+            quiz.folder_id = data.folder_id
 
         session.commit()
 

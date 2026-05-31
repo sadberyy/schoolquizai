@@ -23,6 +23,7 @@ export interface QuizQuestion {
 
 export interface QuizData {
   id?: string
+  folderId?: string | null
   title: string
   difficulty: Difficulty
   attempts: number
