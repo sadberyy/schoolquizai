@@ -606,8 +606,8 @@ export default function Dashboard({
           {folders.length === 0 && !foldersLoading ? (
             <Card className={cn("py-12", CARD_CLASS)}>
               <CardContent className="flex flex-col items-center gap-3 text-center">
-                <Folder className="size-12 text-muted-foreground" />
-                <p className="text-lg text-muted-foreground">
+                <Folder className="dashboard-empty-icon lf-no-scale size-12 text-muted-foreground" />
+                <p className="lf-text text-lg text-muted-foreground">
                   У вас пока нет папок
                 </p>
                 <Button
@@ -727,7 +727,7 @@ export default function Dashboard({
           {quizzes.length === 0 && !quizzesLoading ? (
             <Card className={cn("py-12", CARD_CLASS)}>
               <CardContent className="flex flex-col items-center gap-3 text-center">
-                <p className="text-lg text-muted-foreground">
+                <p className="lf-text text-lg text-muted-foreground">
                   В этой папке пока нет викторин
                 </p>
                 <Button asChild className={cn(ACCENT_BUTTON_CLASS, "dashboard-action-btn")}>

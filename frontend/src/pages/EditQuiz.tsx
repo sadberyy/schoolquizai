@@ -40,12 +40,15 @@ import {
 import { cn } from "@/lib/utils"
 import {
   API_BASE_URL,
+  cloneQuiz,
   createFolder,
   getFolders,
+  getQuizResults,
   getStudentQuizBaseUrl,
   type QuizFolder,
   type UpdateQuizRequest,
 } from "@/lib/api"
+import { truncateListLabel } from "@/lib/displayText"
 import { resolveFolderBackUrl } from "@/lib/navigation"
 import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
 import { buildDownloadFilename } from "@/lib/downloadFilename"
@@ -475,6 +478,25 @@ export default function EditQuiz({
   const [showNewFolderField, setShowNewFolderField] = useState(false)
   const [newFolderDialogName, setNewFolderDialogName] = useState("")
   const [isCreatingFolder, setIsCreatingFolder] = useState(false)
+  const [hasQuizResults, setHasQuizResults] = useState(false)
+  const [saveAsNewVersion, setSaveAsNewVersion] = useState(false)
+
+  const footerRef = useRef<HTMLDivElement>(null)
+  const [footerPadding, setFooterPadding] = useState(180)
+
+  useEffect(() => {
+    const footer = footerRef.current
+    if (!footer) return
+
+    const updatePadding = () => {
+      setFooterPadding(footer.offsetHeight + 48)
+    }
+
+    updatePadding()
+    const observer = new ResizeObserver(updatePadding)
+    observer.observe(footer)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     if (!quizData) return
@@ -685,79 +707,119 @@ export default function EditQuiz({
     [quiz]
   )
 
-  const syncQuizWithBackend = async (
-    status: "draft" | "published",
+  const syncQuizWithBackend = async (options: {
+    status: "draft" | "published"
     folderId?: string | null
-  ): Promise<boolean> => {
+    saveAsNewVersion?: boolean
+  }): Promise<boolean> => {
     if (!resolvedQuizId) return false
+
+    const { status, folderId, saveAsNewVersion: forceNewVersion = false } = options
+    const sourceFolderId = returnFolderId ?? quizFolderId
+    const isCrossFolder =
+      folderId != null &&
+      sourceFolderId != null &&
+      folderId !== sourceFolderId
+    const shouldClone = isCrossFolder || forceNewVersion
 
     setIsSavingQuiz(true)
     setSaveError("")
 
-    try {
-      const updateQuizPayload: UpdateQuizRequest = {
-        title: quiz.title,
-        difficulty: mapDifficultyFrontendToBackend(quiz.difficulty),
-        full_time_seconds:
-          quiz.timerMode === "total" ? Math.round(Number(quiz.totalTimer) * 60) : 0,
-        question_time_seconds:
-          quiz.timerMode === "per_question"
-            ? Math.round(Number(quiz.timerPerQuestion))
-            : 0,
-        max_attempts: Math.round(Number(quiz.attempts)),
-        status,
-      }
+    const updateQuizPayload: UpdateQuizRequest = {
+      title: quiz.title,
+      difficulty: mapDifficultyFrontendToBackend(quiz.difficulty),
+      full_time_seconds:
+        quiz.timerMode === "total" ? Math.round(Number(quiz.totalTimer) * 60) : 0,
+      question_time_seconds:
+        quiz.timerMode === "per_question"
+          ? Math.round(Number(quiz.timerPerQuestion))
+          : 0,
+      max_attempts: Math.round(Number(quiz.attempts)),
+      status,
+    }
 
-      if (folderId !== undefined) {
-        updateQuizPayload.folder_id = folderId
-      }
-
-      const updateQuizRes = await authFetch(`${API_BASE_URL}/quiz/${resolvedQuizId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updateQuizPayload),
-      })
-
-      if (!updateQuizRes.ok) {
-        const errBody = await updateQuizRes.json().catch(() => ({}))
+    const deleteAllQuestionsOnQuiz = async (quizId: string) => {
+      const listRes = await authFetch(`${API_BASE_URL}/quiz/${quizId}`)
+      if (!listRes.ok) {
         throw new Error(
-          (errBody as { detail?: string }).detail ??
-            `Ошибка сохранения настроек: ${updateQuizRes.status}`
+          await readApiError(listRes, "Ошибка загрузки вопросов для синхронизации")
         )
       }
-
-      const updateResult = (await updateQuizRes.json().catch(() => ({}))) as {
-        quiz_id?: string
-        duplicated?: boolean
+      const listData = (await listRes.json()) as { questions?: { id: string }[] }
+      for (const q of listData.questions ?? []) {
+        const deleteRes = await authFetch(
+          `${API_BASE_URL}/quiz/${quizId}/questions/${q.id}`,
+          { method: "DELETE" }
+        )
+        if (!deleteRes.ok) {
+          throw new Error(
+            await readApiError(deleteRes, "Ошибка удаления вопроса при клонировании")
+          )
+        }
       }
-      const isDuplicated = updateResult.duplicated === true
-      const targetQuizId =
-        isDuplicated && updateResult.quiz_id
-          ? updateResult.quiz_id
-          : resolvedQuizId
+    }
 
-      const originalQuestionIds = isDuplicated
-        ? new Set<string>()
-        : backendQuestionIdsRef.current
+    const syncAllQuestionsToQuiz = async (targetQuizId: string) => {
+      for (let orderIdx = 0; orderIdx < quiz.questions.length; orderIdx++) {
+        const q = quiz.questions[orderIdx]
+        const createPayload = frontendQuestionToBackendCreatePayload(q)
+
+        const postRes = await authFetch(
+          `${API_BASE_URL}/quiz/${targetQuizId}/questions`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(createPayload),
+          }
+        )
+
+        if (!postRes.ok) {
+          throw new Error(
+            await readApiError(postRes, "Ошибка добавления вопроса")
+          )
+        }
+
+        const created = (await postRes.json().catch(() => ({}))) as {
+          question_id?: string
+        }
+        if (!created.question_id) {
+          throw new Error("Backend не вернул question_id при добавлении")
+        }
+
+        const updatePayload = frontendQuestionToBackendUpdatePayload(q, orderIdx)
+        const putRes = await authFetch(
+          `${API_BASE_URL}/quiz/${targetQuizId}/questions/${created.question_id}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(updatePayload),
+          }
+        )
+        if (!putRes.ok) {
+          throw new Error(
+            await readApiError(putRes, "Ошибка выставления порядка вопроса")
+          )
+        }
+      }
+    }
+
+    const syncQuestionsInPlace = async (targetQuizId: string) => {
+      const originalQuestionIds = backendQuestionIdsRef.current
       const currentQuestionIds = new Set(quiz.questions.map((q) => q.id))
 
       const deletedQuestionIds = [...originalQuestionIds].filter(
         (id) => !currentQuestionIds.has(id)
       )
 
-      if (!isDuplicated) {
-        for (const questionId of deletedQuestionIds) {
-          const deleteRes = await authFetch(
-            `${API_BASE_URL}/quiz/${targetQuizId}/questions/${questionId}`,
-            { method: "DELETE" }
+      for (const questionId of deletedQuestionIds) {
+        const deleteRes = await authFetch(
+          `${API_BASE_URL}/quiz/${targetQuizId}/questions/${questionId}`,
+          { method: "DELETE" }
+        )
+        if (!deleteRes.ok) {
+          throw new Error(
+            await readApiError(deleteRes, "Ошибка удаления вопроса")
           )
-          if (!deleteRes.ok) {
-            const errBody = await deleteRes.json().catch(() => ({}))
-            throw new Error(
-              (errBody as { detail?: string }).detail ??
-                `Ошибка удаления вопроса: ${deleteRes.status}`
-            )
-          }
         }
       }
 
@@ -765,11 +827,7 @@ export default function EditQuiz({
         const q = quiz.questions[orderIdx]
 
         if (originalQuestionIds.has(q.id)) {
-          const updatePayload = frontendQuestionToBackendUpdatePayload(
-            q,
-            orderIdx
-          )
-
+          const updatePayload = frontendQuestionToBackendUpdatePayload(q, orderIdx)
           const putRes = await authFetch(
             `${API_BASE_URL}/quiz/${targetQuizId}/questions/${q.id}`,
             {
@@ -778,17 +836,13 @@ export default function EditQuiz({
               body: JSON.stringify(updatePayload),
             }
           )
-
           if (!putRes.ok) {
-            const errBody = await putRes.json().catch(() => ({}))
             throw new Error(
-              (errBody as { detail?: string }).detail ??
-                `Ошибка обновления вопроса: ${putRes.status}`
+              await readApiError(putRes, "Ошибка обновления вопроса")
             )
           }
         } else {
           const createPayload = frontendQuestionToBackendCreatePayload(q)
-
           const postRes = await authFetch(
             `${API_BASE_URL}/quiz/${targetQuizId}/questions`,
             {
@@ -797,28 +851,18 @@ export default function EditQuiz({
               body: JSON.stringify(createPayload),
             }
           )
-
           if (!postRes.ok) {
-            const errBody = await postRes.json().catch(() => ({}))
             throw new Error(
-              (errBody as { detail?: string }).detail ??
-                `Ошибка добавления вопроса: ${postRes.status}`
+              await readApiError(postRes, "Ошибка добавления вопроса")
             )
           }
-
           const created = (await postRes.json().catch(() => ({}))) as {
             question_id?: string
           }
-
           if (!created.question_id) {
             throw new Error("Backend не вернул question_id при добавлении")
           }
-
-          const updatePayload = frontendQuestionToBackendUpdatePayload(
-            q,
-            orderIdx
-          )
-
+          const updatePayload = frontendQuestionToBackendUpdatePayload(q, orderIdx)
           const putRes = await authFetch(
             `${API_BASE_URL}/quiz/${targetQuizId}/questions/${created.question_id}`,
             {
@@ -827,24 +871,70 @@ export default function EditQuiz({
               body: JSON.stringify(updatePayload),
             }
           )
-
           if (!putRes.ok) {
-            const errBody = await putRes.json().catch(() => ({}))
             throw new Error(
-              (errBody as { detail?: string }).detail ??
-                `Ошибка выставления порядка вопроса: ${putRes.status}`
+              await readApiError(putRes, "Ошибка выставления порядка вопроса")
             )
           }
         }
       }
+    }
 
-      // Обновляем состояние после синхронизации (чтобы получить реальные question_id)
+    try {
+      let targetQuizId = resolvedQuizId
+
+      if (shouldClone) {
+        const cloned = await cloneQuiz(
+          resolvedQuizId,
+          folderId ?? sourceFolderId ?? undefined
+        )
+        targetQuizId = cloned.quiz_id
+
+        const putPayload: UpdateQuizRequest = { ...updateQuizPayload }
+        if (folderId != null) {
+          putPayload.folder_id = folderId
+        }
+
+        const metaRes = await authFetch(`${API_BASE_URL}/quiz/${targetQuizId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(putPayload),
+        })
+        if (!metaRes.ok) {
+          throw new Error(
+            await readApiError(metaRes, "Ошибка сохранения настроек клона")
+          )
+        }
+
+        await deleteAllQuestionsOnQuiz(targetQuizId)
+        await syncAllQuestionsToQuiz(targetQuizId)
+      } else {
+        const putPayload: UpdateQuizRequest = { ...updateQuizPayload }
+        if (folderId !== undefined) {
+          putPayload.folder_id = folderId
+        }
+
+        const updateQuizRes = await authFetch(
+          `${API_BASE_URL}/quiz/${resolvedQuizId}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(putPayload),
+          }
+        )
+        if (!updateQuizRes.ok) {
+          throw new Error(
+            await readApiError(updateQuizRes, "Ошибка сохранения настроек")
+          )
+        }
+
+        await syncQuestionsInPlace(resolvedQuizId)
+      }
+
       const refreshedRes = await authFetch(`${API_BASE_URL}/quiz/${targetQuizId}`)
       if (!refreshedRes.ok) {
-        const errBody = await refreshedRes.json().catch(() => ({}))
         throw new Error(
-          (errBody as { detail?: string }).detail ??
-            `Ошибка загрузки после сохранения: ${refreshedRes.status}`
+          await readApiError(refreshedRes, "Ошибка загрузки после сохранения")
         )
       }
 
@@ -880,13 +970,19 @@ export default function EditQuiz({
     setNewFolderDialogName("")
 
     try {
-      const list = await getFolders()
+      const [list, results] = await Promise.all([
+        getFolders(),
+        resolvedQuizId ? getQuizResults(resolvedQuizId) : Promise.resolve([]),
+      ])
       setDialogFolders(list)
+      const hasResults = results.length > 0
+      setHasQuizResults(hasResults)
       const defaultId =
         quizFolderId ??
         returnFolderId ??
         (list.length > 0 ? list[0].id : "")
       setSelectedFolderId(defaultId)
+      setSaveAsNewVersion(hasResults)
     } catch (err) {
       setFolderDialogError(
         err instanceof Error ? err.message : "Не удалось загрузить папки"
@@ -927,14 +1023,19 @@ export default function EditQuiz({
       return
     }
 
-    const ok = await syncQuizWithBackend("draft", selectedFolderId)
+    const ok = await syncQuizWithBackend({
+      status: "draft",
+      folderId: selectedFolderId,
+      saveAsNewVersion,
+    })
     if (!ok) {
       setFolderDialogError(saveError || "Не удалось сохранить викторину")
       return
     }
 
     setFolderDialogOpen(false)
-    navigate(`/?folder_id=${encodeURIComponent(selectedFolderId)}`)
+    const backFolderId = returnFolderId ?? quizFolderId ?? selectedFolderId
+    navigate(`/?folder_id=${encodeURIComponent(backFolderId)}`)
   }
 
   const handleSave = () => {
@@ -943,11 +1044,12 @@ export default function EditQuiz({
 
   const dashboardBackTo = resolveFolderBackUrl(returnFolderId, quizFolderId)
 
-  const selectedFolderName =
+  const selectedFolderName = truncateListLabel(
     dialogFolders.find((f) => f.id === selectedFolderId)?.name ?? ""
+  )
 
   const handlePublish = async () => {
-    await syncQuizWithBackend("published")
+    await syncQuizWithBackend({ status: "published" })
 
     const link = `${getStudentQuizBaseUrl()}/${resolvedQuizId}`
     try {
@@ -985,7 +1087,10 @@ export default function EditQuiz({
     Math.max(min, Number(value) || fallback)
 
   return (
-    <div className="edit-quiz-page mx-auto max-w-4xl px-4 pb-40 pt-8 sm:px-6 lg:px-8">
+    <div
+      className="edit-quiz-page mx-auto max-w-4xl px-4 pt-8 sm:px-6 lg:px-8"
+      style={{ paddingBottom: footerPadding }}
+    >
       <Button asChild variant="ghost" size="sm" className="lf-back-btn mb-4 -ml-2">
         <Link to={dashboardBackTo}>Назад</Link>
       </Button>
@@ -999,7 +1104,7 @@ export default function EditQuiz({
           {foldersDialogLoading ? (
             <p className="text-sm text-muted-foreground">Загрузка папок…</p>
           ) : (
-            <div className="flex items-start gap-2">
+            <div className="flex min-w-0 items-start gap-2">
               <Popover
                 open={folderComboboxOpen}
                 onOpenChange={setFolderComboboxOpen}
@@ -1012,7 +1117,9 @@ export default function EditQuiz({
                     aria-expanded={folderComboboxOpen}
                     className="min-w-0 flex-1 justify-between bg-white"
                   >
-                    <span className="truncate">
+                    <span className="min-w-0 truncate" title={
+                      dialogFolders.find((f) => f.id === selectedFolderId)?.name
+                    }>
                       {selectedFolderName || "Выберите папку…"}
                     </span>
                     <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
@@ -1035,13 +1142,18 @@ export default function EditQuiz({
                           >
                             <Check
                               className={cn(
-                                "mr-2 size-4",
+                                "mr-2 size-4 shrink-0",
                                 selectedFolderId === folder.id
                                   ? "opacity-100"
                                   : "opacity-0"
                               )}
                             />
-                            {folder.name}
+                            <span
+                              className="truncate"
+                              title={folder.name}
+                            >
+                              {truncateListLabel(folder.name)}
+                            </span>
                           </CommandItem>
                         ))}
                       </CommandGroup>
@@ -1053,6 +1165,7 @@ export default function EditQuiz({
                 type="button"
                 variant="outline"
                 size="icon"
+                className="shrink-0"
                 aria-label="Создать папку"
                 onClick={() => {
                   setShowNewFolderField((v) => !v)
@@ -1091,6 +1204,27 @@ export default function EditQuiz({
               </div>
             </div>
           )}
+
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id="save-as-new-version"
+              checked={saveAsNewVersion}
+              onCheckedChange={(checked) =>
+                setSaveAsNewVersion(checked === true)
+              }
+            />
+            <Label
+              htmlFor="save-as-new-version"
+              className="cursor-pointer text-sm leading-snug"
+            >
+              Сохранить как новую версию
+              {hasQuizResults && (
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Рекомендуется: у викторины уже есть результаты учеников
+                </span>
+              )}
+            </Label>
+          </div>
 
           {folderDialogError && (
             <p className="text-sm text-destructive">{folderDialogError}</p>
@@ -1484,7 +1618,10 @@ export default function EditQuiz({
         ))}
       </div>
 
-      <div className="edit-quiz-footer fixed inset-x-0 bottom-0 z-50 border-t-2 border-quiz-card-border bg-white/95 px-4 py-3 shadow-lg backdrop-blur-sm">
+      <div
+        ref={footerRef}
+        className="edit-quiz-footer fixed inset-x-0 bottom-0 z-50 border-t-2 border-quiz-card-border bg-white/95 px-4 py-3 shadow-lg backdrop-blur-sm"
+      >
         <div className="mx-auto max-w-4xl">
           {exportingFormat && (
             <p

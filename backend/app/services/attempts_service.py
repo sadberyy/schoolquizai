@@ -2,8 +2,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import defer
 
 from app.db.database import get_db_session
-from app.db.models import Quiz, Question, Result
-
+from app.db.models import Quiz, Question, Result, StudentAnswer
 
 def _utcnow():
     return datetime.now(timezone.utc)
@@ -110,13 +109,7 @@ def get_quiz_questions(quiz_id: str) -> list[dict]:
 
 
 def submit_answer(attempt_id: str, question_id: str, answer) -> dict:
-    """
-    Проверяет ответ ученика на один вопрос и обновляет счёт.
-    
-    Возвращает:
-    - is_correct: правильно ли ответил
-    - points_received: сколько баллов получено
-    """
+    """Проверяет ответ ученика, сохраняет в student_answers и обновляет счёт."""
     with get_db_session() as session:
         question = session.query(Question).filter(Question.id == question_id).first()
         if question is None:
@@ -129,9 +122,18 @@ def submit_answer(attempt_id: str, question_id: str, answer) -> dict:
         is_correct = _check_answer(answer, question.correct_answers)
         points_received = question.points if is_correct else 0
 
-        # Обновляем общий счёт
-        result.score = (result.score or 0) + points_received
+        # сохраняем детальный ответ
+        student_answer = StudentAnswer(
+            result_id=attempt_id,
+            question_id=question_id,
+            answer=answer,
+            is_correct=is_correct,
+            points_received=points_received,
+        )
+        session.add(student_answer)
 
+        # обновляем общий счёт
+        result.score = (result.score or 0) + points_received
         session.commit()
 
         return {

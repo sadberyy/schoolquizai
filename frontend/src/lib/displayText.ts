@@ -11,6 +11,14 @@ export function truncateDisplayName(
   return `${trimmed.slice(0, maxLength)}...`
 }
 
+/** Обрезка для компактных списков (папки в select, intro и т.д.) */
+export function truncateListLabel(
+  name: string,
+  maxLength = 40
+): string {
+  return truncateDisplayName(name, maxLength)
+}
+
 /** Форматирование названия папки: длинное слово без пробелов — до 15 символов. */
 export function formatFolderDisplayName(name: string): string {
   const trimmed = name.trim()

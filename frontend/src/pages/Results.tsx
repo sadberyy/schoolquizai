@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
-import { ArrowDown, ArrowUp, ArrowUpDown, Loader2 } from "lucide-react"
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, Loader2, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { API_BASE_URL } from "@/lib/api"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
+  API_BASE_URL,
+  getQuizHeatmap,
+  type QuizHeatmapData,
+} from "@/lib/api"
 import { truncateDisplayName } from "@/lib/displayText"
 import { resolveFolderBackUrl } from "@/lib/navigation"
 import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
@@ -176,6 +185,10 @@ export default function Results({ quizData, results }: ResultsProps) {
   const [exportError, setExportError] = useState("")
   const [isExportingPdf, setIsExportingPdf] = useState(false)
 
+  const [heatmap, setHeatmap] = useState<QuizHeatmapData | null>(null)
+  const [heatmapLoading, setHeatmapLoading] = useState(false)
+  const [heatmapError, setHeatmapError] = useState("")
+
   const [sortKey, setSortKey] = useState<SortKey>("score")
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
 
@@ -243,6 +256,37 @@ export default function Results({ quizData, results }: ResultsProps) {
     }
   }, [routeQuizId, results])
 
+  useEffect(() => {
+    if (!routeQuizId) return
+
+    let ignore = false
+
+    async function loadHeatmap() {
+      setHeatmapLoading(true)
+      setHeatmapError("")
+      try {
+        const data = await getQuizHeatmap(routeQuizId)
+        if (!ignore) setHeatmap(data)
+      } catch (err) {
+        if (!ignore) {
+          setHeatmapError(
+            err instanceof Error
+              ? err.message
+              : "Не удалось загрузить тепловую карту"
+          )
+        }
+      } finally {
+        if (!ignore) setHeatmapLoading(false)
+      }
+    }
+
+    void loadHeatmap()
+
+    return () => {
+      ignore = true
+    }
+  }, [routeQuizId])
+
   const maxScore = useMemo(() => {
     const fromResults = rawResults.find((r) => r.maxScore > 0)?.maxScore
     if (fromResults) return fromResults
@@ -306,6 +350,29 @@ export default function Results({ quizData, results }: ResultsProps) {
     "inline-flex items-center gap-1.5 font-semibold hover:text-quiz-accent"
 
   const backToDashboard = resolveFolderBackUrl(folderIdFromUrl, quizFolderId)
+
+  const heatmapStudentNames = useMemo(() => {
+    if (!heatmap) return []
+    return heatmap.students.map((s) => s.name)
+  }, [heatmap])
+
+  function getSuccessRateColor(rate: number): string {
+    if (rate > 70) return "text-green-700"
+    if (rate >= 50) return "text-yellow-600"
+    return "text-red-600"
+  }
+
+  function getCellStyle(isCorrect: boolean | null): string {
+    if (isCorrect === true) return "bg-[#86efac]"
+    if (isCorrect === false) return "bg-[#fca5a5]"
+    return "bg-[#e5e7eb]"
+  }
+
+  function truncateQuestion(text: string, max = 150): string {
+    const trimmed = text.trim()
+    if (trimmed.length <= max) return trimmed
+    return `${trimmed.slice(0, max)}...`
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
@@ -481,6 +548,141 @@ export default function Results({ quizData, results }: ResultsProps) {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className={cn(CARD_CLASS, "lf-heatmap-section mt-6")}>
+        <CardHeader>
+          <CardTitle className="lf-text text-xl font-semibold">
+            Анализ сложности вопросов
+          </CardTitle>
+          <p className="lf-text lf-heatmap-desc text-sm text-muted-foreground">
+            Тепловая карта ошибок по вопросам и ученикам
+          </p>
+        </CardHeader>
+        <CardContent>
+          {heatmapLoading && (
+            <p className="text-sm text-muted-foreground">Загрузка карты…</p>
+          )}
+          {heatmapError && (
+            <p className="text-sm text-destructive">{heatmapError}</p>
+          )}
+          {heatmap && heatmap.questions.length === 0 && !heatmapLoading && (
+            <p className="text-sm text-muted-foreground">
+              Недостаточно данных для построения карты
+            </p>
+          )}
+          {heatmap && heatmap.questions.length > 0 && (
+            <div className="flex flex-col gap-6 xl:flex-row">
+              <div className="min-w-0 flex-1 overflow-x-auto">
+                <table className="w-full min-w-[480px] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-quiz-card-border">
+                      <th className="sticky left-0 z-10 bg-white px-2 py-2 text-left font-medium">
+                        №
+                      </th>
+                      {heatmapStudentNames.map((name) => (
+                        <th
+                          key={name}
+                          className="max-w-[8rem] truncate px-2 py-2 text-center text-xs font-medium"
+                          title={name}
+                        >
+                          {name}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {heatmap.questions.map((question) => {
+                      const studentMap = new Map(
+                        question.students.map((s) => [s.student_name, s.is_correct])
+                      )
+                      return (
+                        <tr
+                          key={question.question_id}
+                          className="border-b border-quiz-card-border/40"
+                        >
+                          <td className="sticky left-0 z-10 bg-white px-2 py-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-help font-medium underline decoration-dotted">
+                                  {(question.order_idx ?? 0) + 1}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="right"
+                                className="lf-tooltip max-w-sm text-sm"
+                              >
+                                {truncateQuestion(question.question_text)}
+                              </TooltipContent>
+                            </Tooltip>
+                          </td>
+                          {heatmapStudentNames.map((name) => {
+                            const answered = studentMap.has(name)
+                            const isCorrect = answered
+                              ? studentMap.get(name)!
+                              : null
+                            return (
+                              <td key={`${question.question_id}-${name}`} className="p-1">
+                                <div
+                                  className={cn(
+                                    "mx-auto flex size-8 items-center justify-center rounded-md",
+                                    getCellStyle(isCorrect)
+                                  )}
+                                  title={
+                                    isCorrect === true
+                                      ? "Правильно"
+                                      : isCorrect === false
+                                        ? "Неправильно"
+                                        : "Нет ответа"
+                                  }
+                                >
+                                  {isCorrect === true && (
+                                    <Check className="size-4 text-green-900" />
+                                  )}
+                                  {isCorrect === false && (
+                                    <X className="size-4 text-red-900" />
+                                  )}
+                                </div>
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="lf-heatmap-stats w-full shrink-0 xl:w-64">
+                <p className="lf-text mb-3 text-sm font-medium text-muted-foreground">
+                  % успешных ответов
+                </p>
+                <ul className="flex flex-col gap-2">
+                  {heatmap.questions.map((question) => (
+                    <li
+                      key={`stat-${question.question_id}`}
+                      className="lf-text flex items-center justify-between gap-2 text-sm"
+                    >
+                      <span className="font-medium">
+                        Вопрос {(question.order_idx ?? 0) + 1}
+                      </span>
+                      <span
+                        className={cn(
+                          "font-semibold tabular-nums",
+                          getSuccessRateColor(question.success_rate)
+                        )}
+                      >
+                        {question.total_answers > 0
+                          ? `${question.success_rate}%`
+                          : "—"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

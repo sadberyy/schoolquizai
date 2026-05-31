@@ -119,3 +119,76 @@ export async function deleteQuiz(quizId: string): Promise<void> {
     throw new Error(await readApiError(response, "Ошибка удаления викторины"))
   }
 }
+
+export interface QuizResultRow {
+  student_name: string
+  score: number
+  max_score?: number
+  attempt_number?: number
+  duration_seconds?: number | null
+}
+
+export async function getQuizResults(quizId: string): Promise<QuizResultRow[]> {
+  const response = await authFetch(
+    `${API_BASE_URL}/quiz/${encodeURIComponent(quizId)}/results`
+  )
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Ошибка загрузки результатов"))
+  }
+  const data = (await response.json()) as { results?: QuizResultRow[] }
+  return data.results ?? []
+}
+
+export interface HeatmapStudentCell {
+  student_name: string
+  is_correct: boolean
+  answer?: unknown
+  points_received?: number
+}
+
+export interface HeatmapQuestionRow {
+  question_id: string
+  question_text: string
+  order_idx: number
+  total_answers: number
+  correct_answers: number
+  success_rate: number
+  students: HeatmapStudentCell[]
+}
+
+export interface QuizHeatmapData {
+  quiz_id: string
+  quiz_title: string
+  students: { name: string }[]
+  questions: HeatmapQuestionRow[]
+}
+
+export async function getQuizHeatmap(quizId: string): Promise<QuizHeatmapData> {
+  const response = await authFetch(
+    `${API_BASE_URL}/quiz/${encodeURIComponent(quizId)}/heatmap`
+  )
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Ошибка загрузки тепловой карты"))
+  }
+  return (await response.json()) as QuizHeatmapData
+}
+
+export async function cloneQuiz(
+  quizId: string,
+  folderId?: string | null
+): Promise<{ quiz_id: string; title?: string }> {
+  const response = await authFetch(
+    `${API_BASE_URL}/quiz/${encodeURIComponent(quizId)}/clone`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        folderId != null ? { folder_id: folderId } : {}
+      ),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Ошибка клонирования викторины"))
+  }
+  return (await response.json()) as { quiz_id: string; title?: string }
+}

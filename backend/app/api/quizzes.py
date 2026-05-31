@@ -18,7 +18,7 @@ from app.core.deps import (
 from app.core.http_utils import content_disposition_attachment
 from app.core.logger import logger
 from app.db.database import get_db_session
-from app.db.models import Quiz, Question, Result, Folder
+from app.db.models import Quiz, Question, Result, Folder, StudentAnswer
 from app.schemas.quiz import DifficultyLevel
 from app.schemas.material import SourceFragment
 from app.services.material_service import material_service
@@ -909,6 +909,71 @@ def delete_quiz(quiz_id: str, current_user: CurrentUser = Depends(get_current_us
     return {"ok": True, "deleted_quiz_id": quiz_id}
 
 
+class CloneQuizRequest(BaseModel):
+    folder_id: str | None = None
+
+@router.post("/{quiz_id}/clone")
+def clone_quiz(
+    quiz_id: str,
+    data: CloneQuizRequest | None = None,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Клонирует викторину (создаёт копию без результатов)"""
+    require_quiz_owner(quiz_id, current_user.id)
+    
+    with get_db_session() as session:
+        original = session.query(Quiz).filter(Quiz.id == quiz_id).first()
+        if not original:
+            raise HTTPException(status_code=404, detail="Викторина не найдена")
+        
+        # копируем викторину
+        clone = Quiz(
+            teacher_id=current_user.id,
+            title=original.title,
+            subject=original.subject,
+            grade=original.grade,
+            difficulty=original.difficulty,
+            full_time_seconds=original.full_time_seconds,
+            question_time_seconds=original.question_time_seconds,
+            max_attempts=original.max_attempts,
+            status="draft",
+            folder_id=data.folder_id if data else original.folder_id,
+        )
+        session.add(clone)
+        session.flush()
+        
+        saved_clone_id = clone.id
+        saved_clone_title = clone.title
+        
+        # копируем вопросы
+        original_questions = (
+            session.query(Question)
+            .filter(Question.quiz_id == quiz_id)
+            .order_by(Question.order_idx)
+            .all()
+        )
+        
+        for q in original_questions:
+            new_question = Question(
+                quiz_id=clone.id,
+                question_text=q.question_text,
+                question_type=q.question_type,
+                answers=q.answers,
+                correct_answers=q.correct_answers,
+                explanation=q.explanation,
+                source_fragment=q.source_fragment,
+                points=q.points,
+                order_idx=q.order_idx,
+            )
+            session.add(new_question)
+        
+        session.commit()
+
+        logger.info(f"CLONED QUIZ | original={quiz_id} | clone={saved_clone_id}")
+
+    return {"ok": True, "quiz_id": saved_clone_id, "title": saved_clone_title}
+
+
 # роуты для ученика
 class StartQuizRequest(BaseModel):
     student_name: str
@@ -962,6 +1027,85 @@ def finish_quiz_route(attempt_id: str, data: FinishQuizRequest | None = None):
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# тепловая карта ошибок
+@router.get("/{quiz_id}/heatmap")
+def get_quiz_heatmap(
+    quiz_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Тепловая карта: статистика правильных/неправильных ответов по вопросам"""
+    require_quiz_owner(quiz_id, current_user.id)
+    
+    with get_db_session() as session:
+        quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Викторина не найдена")
+
+        questions = (
+            session.query(Question)
+            .filter(Question.quiz_id == quiz_id)
+            .order_by(Question.order_idx)
+            .all()
+        )
+
+        results = (
+            session.query(Result)
+            .filter(Result.quiz_id == quiz_id)
+            .order_by(Result.student_name)
+            .all()
+        )
+
+        # Собираем матрицу: вопросы × ученики
+        heatmap_data = []
+        
+        for question in questions:
+            question_stats = {
+                "question_id": question.id,
+                "question_text": question.question_text[:200],
+                "order_idx": question.order_idx,
+                "total_answers": 0,
+                "correct_answers": 0,
+                "success_rate": 0.0,
+                "students": [],
+            }
+            
+            for result in results:
+                answer = (
+                    session.query(StudentAnswer)
+                    .filter(
+                        StudentAnswer.result_id == result.id,
+                        StudentAnswer.question_id == question.id,
+                    )
+                    .first()
+                )
+                
+                if answer:
+                    question_stats["total_answers"] += 1
+                    if answer.is_correct:
+                        question_stats["correct_answers"] += 1
+                    
+                    question_stats["students"].append({
+                        "student_name": result.student_name,
+                        "is_correct": answer.is_correct,
+                        "answer": answer.answer,
+                        "points_received": answer.points_received,
+                    })
+            
+            if question_stats["total_answers"] > 0:
+                question_stats["success_rate"] = round(
+                    100.0 * question_stats["correct_answers"] / question_stats["total_answers"], 1
+                )
+            
+            heatmap_data.append(question_stats)
+
+        return {
+            "quiz_id": quiz_id,
+            "quiz_title": quiz.title,
+            "students": [{"name": r.student_name} for r in results],
+            "questions": heatmap_data,
+        }
 
 
 # результаты для учителя

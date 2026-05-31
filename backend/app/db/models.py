@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     JSON,
+    Boolean,
 )
 from sqlalchemy.orm import relationship
 
@@ -116,3 +117,17 @@ class Result(Base):
     duration_seconds = Column(Integer, nullable=True)      # время прохождения в секундах
 
     quiz = relationship("Quiz", back_populates="results")
+    answers = relationship("StudentAnswer", back_populates="result", cascade="all, delete-orphan")
+
+# для тепловой карты ошибок
+class StudentAnswer(Base):
+    __tablename__ = "student_answers"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    result_id = Column(String, ForeignKey("results.id", ondelete="CASCADE"), nullable=False, index=True)
+    question_id = Column(String, ForeignKey("questions.id", ondelete="CASCADE"), nullable=False, index=True)
+    answer = Column(JSON, nullable=True)
+    is_correct = Column(Boolean, nullable=True)
+    points_received = Column(Integer, default=0)
+    result = relationship("Result", back_populates="answers")
+    question = relationship("Question")

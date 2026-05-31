@@ -20,6 +20,7 @@ import { authFetch } from "@/lib/auth"
 import { readApiError } from "@/lib/quizApi"
 import { MathText } from "@/components/MathText"
 import { cn } from "@/lib/utils"
+import { LF_FINISH_BUTTON, LF_FINISH_TITLE } from "@/lib/accessibilityClasses"
 import { backendQuizToQuizData } from "@/pages/EditQuiz"
 import type { QuestionType, QuizData, QuizQuestion } from "@/types/quiz"
 
@@ -302,7 +303,7 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
           asChild
           variant="ghost"
           size="sm"
-          className="lf-back-btn absolute top-4 left-4 text-muted-foreground"
+          className="lf-back-btn absolute top-2 left-0 z-10 text-muted-foreground sm:top-4"
         >
           <Link to={backToDashboard}>Выйти</Link>
         </Button>
@@ -375,17 +376,24 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
           asChild
           variant="ghost"
           size="sm"
-          className="lf-back-btn absolute top-4 left-4 text-muted-foreground"
+          className="lf-back-btn absolute top-2 left-0 z-10 text-muted-foreground sm:top-4"
         >
           <Link to={backToDashboard}>Выйти</Link>
         </Button>
 
         <Card className="mx-auto max-w-3xl border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
           <CardContent className="flex flex-col items-center gap-6 py-10 text-center">
-            <h2 className="lf-text text-2xl font-bold sm:text-3xl">Вопросы завершены</h2>
+            <h2
+              className={cn(
+                "lf-finish-title text-2xl font-bold sm:text-3xl",
+                LF_FINISH_TITLE
+              )}
+            >
+              Вопросы завершены
+            </h2>
             <Button
               type="button"
-              className={cn(ACCENT_BUTTON_CLASS)}
+              className={cn("lf-finish-btn", ACCENT_BUTTON_CLASS, LF_FINISH_BUTTON)}
               onClick={() => setStage("finished")}
             >
               Перейти к ответам
@@ -403,12 +411,12 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
           asChild
           variant="ghost"
           size="sm"
-          className="lf-back-btn absolute top-4 left-4 text-muted-foreground"
+          className="lf-back-btn absolute top-2 left-0 z-10 text-muted-foreground sm:top-4"
         >
           <Link to={backToDashboard}>Выйти</Link>
         </Button>
 
-        <h2 className="mb-6 text-center text-2xl font-bold sm:text-3xl">
+        <h2 className="mb-6 pt-12 text-center text-2xl font-bold sm:text-3xl">
           Правильные ответы
         </h2>
         <Card className="border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
@@ -458,12 +466,12 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
         asChild
         variant="ghost"
         size="sm"
-        className="lf-back-btn absolute top-4 left-4 text-muted-foreground"
+        className="lf-back-btn absolute top-2 left-0 z-10 text-muted-foreground sm:top-4"
       >
         <Link to={backToDashboard}>Выйти</Link>
       </Button>
 
-      <header className="mb-8 pt-8 text-center sm:pt-0">
+      <header className="mb-8 pt-14 text-center sm:pt-12">
         <h1 className="text-2xl font-bold sm:text-3xl">{quiz.title}</h1>
         <p className="lf-text mt-2 text-lg text-muted-foreground sm:text-xl">
           Вопрос {questionIndex + 1} из {totalQuestions}

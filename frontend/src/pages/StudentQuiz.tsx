@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { API_BASE_URL } from "@/lib/api"
+import { truncateListLabel } from "@/lib/displayText"
 import { QUESTION_TYPE_HINTS } from "@/constants/quiz"
 import {
   buildStudentAnswerPayload,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/quizApi"
 import { MathText } from "@/components/MathText"
 import { cn } from "@/lib/utils"
+import { LF_ACTION_BUTTON } from "@/lib/accessibilityClasses"
 import type { QuizData, QuizQuestion } from "@/types/quiz"
 
 export type { QuizData } from "@/types/quiz"
@@ -606,9 +608,12 @@ export default function StudentQuiz({
     return (
       <div className="flex min-h-screen items-center justify-center px-4 py-8">
         <Card className="w-full max-w-md border-2 border-quiz-card-border bg-white/95 shadow-md ring-0">
-          <CardHeader>
-            <CardTitle className="student-intro-title text-center text-2xl">
-              {quiz.title}
+          <CardHeader className="pb-2">
+            <CardTitle
+              className="student-intro-title text-left text-2xl leading-snug"
+              title={quiz.title}
+            >
+              {truncateListLabel(quiz.title, 40)}
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
@@ -635,7 +640,11 @@ export default function StudentQuiz({
             )}
             <Button
               type="button"
-              className={cn("student-intro-start-btn mt-2 w-full", ACCENT_BUTTON_CLASS)}
+              className={cn(
+                "student-intro-start-btn student-quiz-action-btn mt-2 w-full",
+                ACCENT_BUTTON_CLASS,
+                LF_ACTION_BUTTON
+              )}
               disabled={!canStart || isStarting || isLoadingMeta}
               onClick={handleStart}
             >
@@ -772,7 +781,7 @@ export default function StudentQuiz({
                       "border-quiz-accent bg-quiz-accent/10 ring-2 ring-quiz-accent/30"
                   )}
                 >
-                  <MathText className="quiz-option-text min-w-0 flex-1 break-words text-left [overflow-wrap:anywhere]">
+                  <MathText className="quiz-option-text lf-text min-w-0 flex-1 break-words text-left [overflow-wrap:anywhere]">
                     {option.text}
                   </MathText>
                 </Button>
@@ -783,7 +792,11 @@ export default function StudentQuiz({
           {!hasSubmitted && (
             <Button
               type="button"
-              className={cn("w-full", ACCENT_BUTTON_CLASS)}
+              className={cn(
+                "student-quiz-action-btn w-full",
+                ACCENT_BUTTON_CLASS,
+                LF_ACTION_BUTTON
+              )}
               disabled={selectedIds.length === 0}
               onClick={handleSubmit}
             >
@@ -794,7 +807,11 @@ export default function StudentQuiz({
           {hasSubmitted && (
             <Button
               type="button"
-              className={cn("w-full", NEXT_BUTTON_CLASS)}
+              className={cn(
+                "student-quiz-action-btn w-full",
+                NEXT_BUTTON_CLASS,
+                LF_ACTION_BUTTON
+              )}
               onClick={handleNext}
             >
               {isLastQuestion ? "Завершить викторину" : "Следующий вопрос"}
