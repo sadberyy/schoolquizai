@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { Check, ChevronsUpDown, Download, Loader2, Plus, Trash2 } from "lucide-react"
 
 import { MathPreview } from "@/components/MathText"
+import { QuestionImageUploader } from "@/components/QuestionImageUploader"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -48,7 +49,7 @@ import {
 import { resolveFolderBackUrl } from "@/lib/navigation"
 import { authFetch, downloadAuthenticatedFile } from "@/lib/auth"
 import { buildDownloadFilename } from "@/lib/downloadFilename"
-import { readApiError } from "@/lib/quizApi"
+import { readApiError, getQuestionImageUrl } from "@/lib/quizApi"
 import {
   DIFFICULTIES,
   type Difficulty,
@@ -206,6 +207,8 @@ function normalizeQuestion(question: QuizQuestion): QuizQuestion {
     text: question.text ?? "",
     source: question.source ?? "",
     explanation: question.explanation ?? "",
+    hasImage: Boolean(question.hasImage ?? question.imageUrl),
+    imageUrl: question.imageUrl ?? null,
     options,
   }
 }
@@ -379,6 +382,10 @@ export function backendQuizToQuizData(backendQuiz: any): QuizData {
         text: q.question_text ?? "",
         source: q.source_fragment ?? "",
         explanation: q.explanation ?? "",
+        hasImage: Boolean(q.has_image),
+        imageUrl: q.has_image
+          ? getQuestionImageUrl(String(backendQuiz.quiz_id), String(q.id))
+          : null,
         options: buildOptionsFromBackendAnswers({
           answers: q.answers,
           correctAnswers: q.correct_answers,
@@ -1338,6 +1345,20 @@ export default function EditQuiz({
                   placeholder="Фрагмент / страница / слайд"
                 />
               </div>
+
+              <QuestionImageUploader
+                quizId={resolvedQuizId}
+                questionId={question.id}
+                imageUrl={question.imageUrl}
+                isUnsaved={!backendQuestionIdsRef.current.has(question.id)}
+                onImageChange={(newUrl) =>
+                  updateQuestion(question.id, {
+                    imageUrl: newUrl,
+                    hasImage: Boolean(newUrl),
+                  })
+                }
+                disabled={isSavingQuiz || isExporting}
+              />
 
               <div className="flex flex-col gap-3">
                 <Label>Варианты ответов</Label>

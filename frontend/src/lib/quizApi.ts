@@ -1,5 +1,4 @@
 import type { QuestionType, QuizQuestion } from "@/types/quiz"
-import type { QuestionType, QuizQuestion } from "@/types/quiz"
 import { authFetch } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api"
 
@@ -141,9 +140,13 @@ export function validateImageFile(file: File): string | null {
   return null
 }
 
+export function getQuestionImageUrl(quizId: string, questionId: string): string {
+  return `${API_BASE_URL}/quiz/${quizId}/questions/${questionId}/image`
+}
+
 /**
  * Загружает изображение к вопросу.
- * Возвращает URL загруженного изображения (как вернул бэкенд).
+ * Возвращает URL для отображения (GET-эндпоинт бэкенда).
  */
 export async function uploadQuestionImage(params: {
   quizId: string
@@ -172,11 +175,8 @@ export async function uploadQuestionImage(params: {
     throw new Error(await readApiError(response, "Ошибка загрузки изображения"))
   }
 
-  const data = (await response.json()) as { image_url?: string }
-  if (!data.image_url) {
-    throw new Error("Бэкенд не вернул URL изображения")
-  }
-  return data.image_url
+  await response.json().catch(() => ({}))
+  return getQuestionImageUrl(quizId, questionId)
 }
 
 /**
