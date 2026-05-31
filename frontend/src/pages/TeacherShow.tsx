@@ -53,6 +53,7 @@ const EMPTY_QUIZ: QuizData = {
   totalTimer: 0,
   maxScore: 0,
   questions: [],
+  timerMode: "per_question"
 }
 
 function normalizeQuizData(data: QuizData): QuizData {
@@ -510,6 +511,8 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
                 </div>
               )}
             </div>
+
+            <QuestionImage imageUrl={currentQuestion.imageUrl} size="lg" />
 
             <div className="flex flex-col gap-3">
               {currentQuestion.options.map((option) => {

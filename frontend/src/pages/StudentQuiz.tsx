@@ -15,6 +15,7 @@ import {
   readApiError,
 } from "@/lib/quizApi"
 import { MathText } from "@/components/MathText"
+import { QuestionImage } from "@/components/QuestionImage"
 import { cn } from "@/lib/utils"
 import { LF_ACTION_BUTTON } from "@/lib/accessibilityClasses"
 import type { QuizData, QuizQuestion } from "@/types/quiz"
@@ -463,7 +464,10 @@ export default function StudentQuiz({
         questions?: import("@/lib/quizApi").ApiStudentQuestion[]
       }
 
-      const mapped = mapStudentQuestionsFromApi(questionsData.questions ?? [])
+      const mapped = mapStudentQuestionsFromApi(
+        questionsData.questions ?? [],
+        routeQuizId!
+      )
       if (mapped.questions.length === 0) {
         throw new Error("Викторина не содержит вопросов")
       }
@@ -764,6 +768,8 @@ export default function StudentQuiz({
           <h2 className="text-xl font-semibold leading-snug sm:text-2xl">
             <MathText as="span">{currentQuestion.text}</MathText>
           </h2>
+
+          <QuestionImage imageUrl={currentQuestion.imageUrl} size="md" />
 
           <div className="flex flex-col gap-3">
             {currentQuestion.options.map((option) => {

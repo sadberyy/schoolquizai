@@ -6,10 +6,10 @@ import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import {
   deleteQuestionImage,
+  resolveImageSrc,
   uploadQuestionImage,
   validateImageFile,
 } from "@/lib/quizApi"
-import { API_BASE_URL } from "@/lib/api"
 
 export interface QuestionImageUploaderProps {
   quizId: string | undefined
@@ -19,22 +19,6 @@ export interface QuestionImageUploaderProps {
   isUnsaved: boolean
   onImageChange: (newUrl: string | null) => void
   disabled?: boolean
-}
-
-/**
- * Превращает относительный путь от бэкенда (например, "/uploads/xxx.jpg")
- * в полный URL для рендера в <img>.
- */
-function resolveImageSrc(imageUrl: string): string {
-  if (/^https?:\/\//i.test(imageUrl)) return imageUrl
-  // API_BASE_URL обычно вида "http://host/api" — статика лежит на корне домена.
-  // Берём origin от API_BASE_URL.
-  try {
-    const origin = new URL(API_BASE_URL).origin
-    return `${origin}${imageUrl.startsWith("/") ? "" : "/"}${imageUrl}`
-  } catch {
-    return imageUrl
-  }
 }
 
 export function QuestionImageUploader({

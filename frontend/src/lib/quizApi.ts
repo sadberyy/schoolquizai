@@ -2,6 +2,7 @@ import type { QuestionType, QuizQuestion } from "@/types/quiz"
 import { authFetch } from "@/lib/auth"
 import { API_BASE_URL } from "@/lib/api"
 
+
 export async function readApiError(
   response: Response,
   fallback: string
@@ -29,43 +30,51 @@ export interface ApiStudentQuestion {
   answers: unknown
   points?: number
   order_idx?: number
+  has_image?: boolean
 }
 
-export function mapStudentQuestionsFromApi(
-  items: ApiStudentQuestion[]
-): { questions: QuizQuestion[]; maxScore: number } {
-  const sorted = [...items].sort(
-    (a, b) => (Number(a.order_idx) || 0) - (Number(b.order_idx) || 0)
-  )
+  export function mapStudentQuestionsFromApi(
+    items: ApiStudentQuestion[],
+    quizId: string
+  ): { questions: QuizQuestion[]; maxScore: number } {
+    const sorted = [...items].sort(
+      (a, b) => (Number(a.order_idx) || 0) - (Number(b.order_idx) || 0)
+    )
 
-  let maxScore = 0
-  const questions: QuizQuestion[] = sorted.map((q) => {
-    const points = Number(q.points) || 0
-    maxScore += points
+    let maxScore = 0
+    const questions: QuizQuestion[] = sorted.map((q) => {
+      const points = Number(q.points) || 0
+      maxScore += points
 
-    const answerList = Array.isArray(q.answers)
-      ? q.answers.filter((x): x is string => typeof x === "string")
-      : []
+      const answerList = Array.isArray(q.answers)
+        ? q.answers.filter((x): x is string => typeof x === "string")
+        : []
 
-    const type = mapQuestionTypeBackendToFrontend(q.question_type)
+      const type = mapQuestionTypeBackendToFrontend(q.question_type)
 
-    return {
-      id: String(q.id),
-      type,
-      text: q.question_text ?? "",
-      source: "",
-      explanation: "",
-      options: answerList.map((text, idx) => ({
-        id: `opt-${q.id}-${idx}`,
-        text,
-        isCorrect: false,
-        points: 0,
-      })),
-    }
-  })
+      const hasImage = Boolean(q.has_image)
 
-  return { questions, maxScore }
-}
+      return {
+        id: String(q.id),
+        type,
+        text: q.question_text ?? "",
+        source: "",
+        explanation: "",
+        options: answerList.map((text, idx) => ({
+          id: `opt-${q.id}-${idx}`,
+          text,
+          isCorrect: false,
+          points: 0,
+        })),
+        hasImage,
+        imageUrl: hasImage
+        ? getQuestionImageUrl(String(quizId), String(q.id))
+        : null,
+      }
+    })
+
+    return { questions, maxScore }
+  }
 
 export function buildStudentAnswerPayload(
   question: QuizQuestion,
@@ -142,6 +151,19 @@ export function validateImageFile(file: File): string | null {
 
 export function getQuestionImageUrl(quizId: string, questionId: string): string {
   return `${API_BASE_URL}/quiz/${quizId}/questions/${questionId}/image`
+}
+
+
+export function resolveImageSrc(imageUrl: string): string {
+  if (/^https?:\/\//i.test(imageUrl)) return imageUrl
+  // API_BASE_URL обычно вида "http://host/api" — статика лежит на корне домена.
+  // Берём origin от API_BASE_URL.
+  try {
+    const origin = new URL(API_BASE_URL).origin
+    return `${origin}${imageUrl.startsWith("/") ? "" : "/"}${imageUrl}`
+  } catch {
+    return imageUrl
+  }
 }
 
 /**
