@@ -104,7 +104,6 @@ export default function StudentQuiz({
   const [startError, setStartError] = useState("")
   const [apiError, setApiError] = useState("")
   const [isStarting, setIsStarting] = useState(false)
-  const [attemptId, setAttemptId] = useState<string | null>(null)
   const attemptIdRef = useRef<string | null>(null)
 
   const [stage, setStage] = useState<Stage>("intro")
@@ -140,10 +139,6 @@ export default function StudentQuiz({
   useEffect(() => {
     elapsedSecondsRef.current = elapsedSeconds
   }, [elapsedSeconds])
-
-  useEffect(() => {
-    attemptIdRef.current = attemptId
-  }, [attemptId])
 
   useEffect(() => {
     if (!routeQuizId || quizData) {
@@ -343,10 +338,10 @@ export default function StudentQuiz({
   const onQuestionTimeExpired = useCallback(() => {
     const index = questionIndexRef.current
 
+    if (hasSubmittedRef.current) return
+
     if (questionTimeoutHandledRef.current === index) return
     questionTimeoutHandledRef.current = index
-
-    if (hasSubmittedRef.current) return
 
     const question = questions[index]
     if (!question) {
@@ -399,7 +394,6 @@ export default function StudentQuiz({
     setApiError("")
 
     try {
-      // Зафиксировать ответы на все оставшиеся вопросы как пустые.
       const startIdx = questionIndexRef.current
       for (let i = startIdx; i < questions.length; i += 1) {
         const q = questions[i]
@@ -416,11 +410,16 @@ export default function StudentQuiz({
     }
   }, [questions, submitAnswerToBackend, finishQuiz])
 
+  // ============================================================
+  // ↓↓↓ beginAttempt — отдельная функция, ничего лишнего внутри
+  // ============================================================
   const beginAttempt = async () => {
     if (!routeQuizId) {
       setStartError("Не указан идентификатор викторины")
       return
     }
+
+    const quizIdLocal = routeQuizId
 
     setIsStarting(true)
     setStartError("")
@@ -428,7 +427,7 @@ export default function StudentQuiz({
 
     try {
       const startResponse = await fetch(
-        `${API_BASE_URL}/quiz/${routeQuizId}/start`,
+        `${API_BASE_URL}/quiz/${quizIdLocal}/start`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -447,11 +446,10 @@ export default function StudentQuiz({
         throw new Error("Backend не вернул attempt_id")
       }
 
-      setAttemptId(startData.attempt_id)
       attemptIdRef.current = startData.attempt_id
 
       const questionsResponse = await fetch(
-        `${API_BASE_URL}/quiz/${routeQuizId}/questions`
+        `${API_BASE_URL}/quiz/${quizIdLocal}/questions`
       )
 
       if (!questionsResponse.ok) {
@@ -466,7 +464,7 @@ export default function StudentQuiz({
 
       const mapped = mapStudentQuestionsFromApi(
         questionsData.questions ?? [],
-        routeQuizId!
+        quizIdLocal
       )
       if (mapped.questions.length === 0) {
         throw new Error("Викторина не содержит вопросов")
@@ -485,27 +483,15 @@ export default function StudentQuiz({
     }
   }
 
+  // ============================================================
+  // ↓↓↓ handleStart / handleRetry — СНАРУЖИ beginAttempt
+  // ============================================================
   const handleStart = () => {
     void beginAttempt()
   }
 
   const handleRetry = () => {
     void beginAttempt()
-  }
-
-  const toggleOption = (optionId: string) => {
-    if (hasSubmitted || !currentQuestion) return
-
-    if (currentQuestion.type === "multiple") {
-      setSelectedIds((prev) =>
-        prev.includes(optionId)
-          ? prev.filter((id) => id !== optionId)
-          : [...prev, optionId]
-      )
-      return
-    }
-
-    setSelectedIds([optionId])
   }
 
   const handleSubmit = () => {
@@ -521,6 +507,21 @@ export default function StudentQuiz({
           err instanceof Error ? err.message : "Не удалось отправить ответ"
         )
       })
+  }
+
+  const toggleOption = (optionId: string) => {
+    if (hasSubmitted || !currentQuestion) return
+
+    if (currentQuestion.type === "multiple") {
+      setSelectedIds((prev) =>
+        prev.includes(optionId)
+          ? prev.filter((id) => id !== optionId)
+          : [...prev, optionId]
+      )
+      return
+    }
+
+    setSelectedIds([optionId])
   }
 
   const handleNext = () => {
@@ -551,7 +552,6 @@ export default function StudentQuiz({
 
   useEffect(() => {
     if (stage !== "quiz" || quiz.totalTimer <= 0) return
-
     if (quiz.timerMode !== "total") return
 
     setTotalTimeLeft(quiz.totalTimer * 60)
@@ -600,6 +600,9 @@ export default function StudentQuiz({
     }
   }, [stage, questionIndex, totalQuestions, finishQuiz])
 
+  // ============================================================
+  // ↓↓↓ Рендер
+  // ============================================================
   if (!routeQuizId && !quizData) {
     return (
       <div className="flex min-h-screen items-center justify-center px-4 py-8">
@@ -674,8 +677,7 @@ export default function StudentQuiz({
               <p className="lf-text text-sm font-medium text-destructive">Время вышло.</p>
             )}
             <p className="lf-text">
-              <span className="font-semibold">Баллы:</span> {score} из{" "}
-              {maxScore}
+              <span className="font-semibold">Баллы:</span> {score} из {maxScore}
             </p>
             {quiz.timerMode !== "none" ? (
               <p className="lf-text">
@@ -688,8 +690,7 @@ export default function StudentQuiz({
               </p>
             )}
             <p className="lf-text">
-              <span className="font-semibold">Номер попытки:</span>{" "}
-              {attemptNumber}
+              <span className="font-semibold">Номер попытки:</span> {attemptNumber}
             </p>
             <p className="lf-text text-sm text-muted-foreground">
               Попытка {attemptNumber} из {quiz.attempts}
@@ -714,9 +715,9 @@ export default function StudentQuiz({
                 type="button"
                 variant="secondary"
                 className="w-full"
-                onClick={() => console.log("Результат передан учителю")}
+                onClick={() => onComplete?.(buildResult())}
               >
-                {hasAttemptsLeft ? "Закрыть" : "Результат передан учителю"}
+                Закрыть
               </Button>
             </div>
           </CardContent>
@@ -769,7 +770,11 @@ export default function StudentQuiz({
             <MathText as="span">{currentQuestion.text}</MathText>
           </h2>
 
-          <QuestionImage imageUrl={currentQuestion.imageUrl} size="md" />
+          <QuestionImage
+            key={currentQuestion.id}
+            imageUrl={currentQuestion.imageUrl}
+            size="md"
+          />
 
           <div className="flex flex-col gap-3">
             {currentQuestion.options.map((option) => {

@@ -172,7 +172,7 @@ export function QuestionImageUploader({
               size="sm"
               onClick={openFilePicker}
               disabled={isDisabled}
-              className="bg-white/90 backdrop-blur-sm hover:bg-white"
+              className="bg-background/90 backdrop-blur-sm hover:bg-background"
             >
               <ImagePlus className="size-4" />
               Заменить

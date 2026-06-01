@@ -22,7 +22,9 @@ import { MathText } from "@/components/MathText"
 import { cn } from "@/lib/utils"
 import { LF_FINISH_BUTTON, LF_FINISH_TITLE } from "@/lib/accessibilityClasses"
 import { backendQuizToQuizData } from "@/pages/EditQuiz"
+import { QuestionImage } from "@/components/QuestionImage"
 import type { QuestionType, QuizData, QuizQuestion } from "@/types/quiz"
+import { QUESTION_TYPE_HINTS } from "@/constants/quiz"
 
 export type { QuizData } from "@/types/quiz"
 
@@ -33,11 +35,6 @@ export interface TeacherShowProps {
 type TeacherMode = "end" | "instant"
 type TeacherStage = "setup" | "quiz" | "answers-table" | "finished"
 
-const QUESTION_TYPE_HINTS: Record<QuestionType, string> = {
-  single: "Одиночный выбор",
-  multiple: "Множественный выбор",
-  trueFalse: "True/False",
-}
 
 const ACCENT_BUTTON_CLASS =
   "h-12 border-transparent bg-quiz-accent text-base text-white hover:bg-quiz-accent/90 sm:h-14 sm:text-lg"
@@ -165,8 +162,6 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
   const currentQuestion = quiz.questions[questionIndex]
   const isLastQuestion = questionIndex >= totalQuestions - 1
   const timerEnabled = mode === "end" || (mode === "instant" && !withoutQuestionTimer)
-  const shouldAutoReveal = mode === "instant" && timerEnabled
-  const shouldAutoNext = mode === "end" && timerEnabled
   const canManualReveal = mode === "instant" && withoutQuestionTimer
 
   const resetToQuestion = (nextIndex: number) => {
@@ -192,7 +187,7 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
             }
 
             // Переход к следующему вопросу и запуск таймера с чистого состояния
-            setQuestionIndex(questionIndex + 1)
+            setQuestionIndex((current) => current + 1)
             setSelectedIds([])
             setIsRevealed(false)
             setIsPaused(false)
@@ -324,9 +319,10 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
                 min={10}
                 value={questionTimerSeconds}
                 disabled={mode === "instant" && withoutQuestionTimer}
-                onChange={(e) =>
-                  setQuestionTimerSeconds(Math.max(10, Number(e.target.value) || 10))
-                }
+                onChange={(e) => {
+                  const v = Number(e.target.value)
+                  setQuestionTimerSeconds(Number.isFinite(v) ? Math.max(10, v) : 10)
+                }}
               />
             </div>
 
@@ -405,7 +401,7 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
     )
   }
 
-  if (stage === "finished" && mode === "end") {
+  if (stage === "finished") {
     return (
       <div className="relative mx-auto min-h-screen max-w-6xl px-4 py-8 sm:px-8">
         <Button
@@ -512,8 +508,11 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
               )}
             </div>
 
-            <QuestionImage imageUrl={currentQuestion.imageUrl} size="lg" />
-
+            <QuestionImage
+              key={currentQuestion.id}
+              imageUrl={currentQuestion.imageUrl}
+              size="lg"
+            />
             <div className="flex flex-col gap-3">
               {currentQuestion.options.map((option) => {
                 const showCheck = isRevealed && option.isCorrect
@@ -554,7 +553,7 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
               </Button>
             )}
 
-            {isRevealed && currentQuestion.explanation.trim() && (
+            {isRevealed && currentQuestion.explanation?.trim() && (
               <Card className="border border-quiz-card-border/60 bg-muted/40 shadow-none">
                 <CardContent className="pt-4">
                   <p className="lf-text mb-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
@@ -578,9 +577,13 @@ export default function TeacherShow({ quizData: quizDataProp }: TeacherShowProps
             )}
 
             {isRevealed && isLastQuestion && (
-              <p className="lf-text text-center text-lg font-medium text-muted-foreground">
-                Викторина окончена
-              </p>
+              <Button
+                type="button"
+                className={cn("w-full", NEXT_BUTTON_CLASS)}
+                onClick={() => setStage("finished")}
+              >
+                {mode === "instant" ? "Завершить показ" : "К правильным ответам"}
+              </Button>
             )}
           </CardContent>
         </Card>
