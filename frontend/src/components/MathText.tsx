@@ -1,4 +1,6 @@
 import katex from "katex"
+/** mhchem (\ce, \pu); для бандлера — katex/contrib/mhchem */
+import "katex/contrib/mhchem"
 import { useMemo } from "react"
 
 import { splitMathSegments } from "@/lib/mathText"
@@ -43,12 +45,11 @@ type MathPreviewProps = {
   className?: string
 }
 
-/** Предпросмотр формул под полями редактирования. */
+/** Предпросмотр формул */
 export function MathPreview({ text, className }: MathPreviewProps) {
   if (!text.trim()) return null
 
-  // Показываем preview только когда реально есть LaTeX-разметка ($...$ / $$...$$).
-  // Иначе для обычного текста preview превращается в "второе поле" и ломает UX редактора.
+  // Показываем preview только когда реально есть LaTeX-разметка
   const hasMath = splitMathSegments(text).some((s) => s.kind === "math")
   if (!hasMath) return null
 
