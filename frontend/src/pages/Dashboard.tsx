@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import type { User } from "@/types/user"
 import {
@@ -7,6 +7,7 @@ import {
   Folder,
   Pencil,
   Presentation,
+  Search,
   Trash2,
 } from "lucide-react"
 
@@ -22,11 +23,17 @@ import {
   deleteQuiz,
   getFolders,
   listQuizzesInFolder,
+  loadAllQuizzesForSearch,
   renameFolder,
   type QuizFolder,
   type QuizListItem,
+  type QuizSearchItem,
 } from "@/lib/api"
 import { formatFolderDisplayName, truncateDisplayName } from "@/lib/displayText"
+import {
+  filterQuizzes,
+  normalizeSearchQuery,
+} from "@/lib/filterQuizzes"
 import { cn } from "@/lib/utils"
 import {
   Dialog,
@@ -64,6 +71,14 @@ export default function Dashboard({
 }: DashboardProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const folderIdFromUrl = searchParams.get("folder_id")
+  const [searchQuery, setSearchQuery] = useState(
+    () => searchParams.get("q") ?? ""
+  )
+  const [allQuizzesCache, setAllQuizzesCache] = useState<
+    QuizSearchItem[] | null
+  >(null)
+  const [allQuizzesLoading, setAllQuizzesLoading] = useState(false)
+  const [allQuizzesError, setAllQuizzesError] = useState("")
 
   const [folders, setFolders] = useState<QuizFolder[]>([])
   const [foldersLoading, setFoldersLoading] = useState(false)
@@ -102,6 +117,24 @@ export default function Dashboard({
   const [isLoading, setIsLoading] = useState(false)
 
   const isInsideFolder = Boolean(activeFolderId)
+  const trimmedSearchQuery = normalizeSearchQuery(searchQuery)
+  const isGlobalSearchActive =
+    !isInsideFolder && trimmedSearchQuery.length > 0
+  const isFolderSearchActive =
+    isInsideFolder && trimmedSearchQuery.length > 0
+
+  const filteredFolderQuizzes = useMemo(
+    () => filterQuizzes(quizzes, searchQuery),
+    [quizzes, searchQuery]
+  )
+  const filteredGlobalQuizzes = useMemo(
+    () =>
+      filterQuizzes(allQuizzesCache ?? [], searchQuery, (q) => q.folderName),
+    [allQuizzesCache, searchQuery]
+  )
+  const displayedFolderQuizzes = isFolderSearchActive
+    ? filteredFolderQuizzes
+    : quizzes
 
   const loadFolders = useCallback(async () => {
     setFoldersLoading(true)
@@ -142,6 +175,43 @@ export default function Dashboard({
   }, [user, loadFolders])
 
   useEffect(() => {
+    const qFromUrl = searchParams.get("q") ?? ""
+    setSearchQuery((prev) => (prev === qFromUrl ? prev : qFromUrl))
+  }, [searchParams])
+
+  useEffect(() => {
+    if (!user || isInsideFolder) return
+    if (!trimmedSearchQuery) {
+      setAllQuizzesCache(null)
+      setAllQuizzesError("")
+      return
+    }
+    if (allQuizzesCache !== null) return
+
+    let cancelled = false
+    setAllQuizzesLoading(true)
+    setAllQuizzesError("")
+    void loadAllQuizzesForSearch()
+      .then((list) => {
+        if (!cancelled) setAllQuizzesCache(list)
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setAllQuizzesError(
+            err instanceof Error ? err.message : "Не удалось выполнить поиск"
+          )
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAllQuizzesLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [user, isInsideFolder, trimmedSearchQuery, allQuizzesCache])
+
+  useEffect(() => {
     if (!user || !folderIdFromUrl) {
       if (!folderIdFromUrl) {
         setActiveFolderId(null)
@@ -160,17 +230,43 @@ export default function Dashboard({
     void loadQuizzesInFolder(folderIdFromUrl)
   }, [user, folderIdFromUrl, folders, loadQuizzesInFolder])
 
+  const updateSearchInUrl = (value: string) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        const trimmed = value.trim()
+        if (trimmed) next.set("q", trimmed)
+        else next.delete("q")
+        return next
+      },
+      { replace: true }
+    )
+  }
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    updateSearchInUrl(value)
+  }
+
   const openFolder = (folder: QuizFolder) => {
     setActiveFolderId(folder.id)
     setActiveFolderName(folder.name)
-    setSearchParams({ folder_id: folder.id })
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.set("folder_id", folder.id)
+      return next
+    })
   }
 
   const goBackToFolders = () => {
     setActiveFolderId(null)
     setActiveFolderName("")
     setQuizzes([])
-    setSearchParams({})
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete("folder_id")
+      return next
+    })
   }
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -312,6 +408,7 @@ export default function Dashboard({
       if (activeFolderId === folderToDelete.id) {
         goBackToFolders()
       }
+      setAllQuizzesCache(null)
       setFolderToDelete(null)
       await loadFolders()
     } catch (err) {
@@ -329,6 +426,9 @@ export default function Dashboard({
     try {
       await deleteQuiz(quizId)
       setQuizzes((prev) => prev.filter((q) => q.id !== quizId))
+      setAllQuizzesCache((prev) =>
+        prev ? prev.filter((q) => q.id !== quizId) : prev
+      )
       onDeleteQuiz(quizId)
       await loadFolders()
     } catch (err) {
@@ -341,20 +441,107 @@ export default function Dashboard({
   }
 
 
-  const editLink = (quizId: string) =>
-    activeFolderId
-      ? `/edit/${quizId}?folder_id=${encodeURIComponent(activeFolderId)}`
+  const linkFolderId = (folderId?: string | null) =>
+    folderId ?? activeFolderId ?? null
+
+  const editLink = (quizId: string, folderId?: string | null) => {
+    const fid = linkFolderId(folderId)
+    return fid
+      ? `/edit/${quizId}?folder_id=${encodeURIComponent(fid)}`
       : `/edit/${quizId}`
+  }
 
-  const teacherLink = (quizId: string) =>
-    activeFolderId
-      ? `/teacher/${quizId}?folder_id=${encodeURIComponent(activeFolderId)}`
+  const teacherLink = (quizId: string, folderId?: string | null) => {
+    const fid = linkFolderId(folderId)
+    return fid
+      ? `/teacher/${quizId}?folder_id=${encodeURIComponent(fid)}`
       : `/teacher/${quizId}`
+  }
 
-  const resultsLink = (quizId: string) =>
-    activeFolderId
-      ? `/results/${quizId}?folder_id=${encodeURIComponent(activeFolderId)}`
+  const resultsLink = (quizId: string, folderId?: string | null) => {
+    const fid = linkFolderId(folderId)
+    return fid
+      ? `/results/${quizId}?folder_id=${encodeURIComponent(fid)}`
       : `/results/${quizId}`
+  }
+
+  const renderQuizCard = (
+    quiz: QuizListItem,
+    options?: { folderId?: string | null; folderLabel?: string }
+  ) => {
+    const fid = linkFolderId(options?.folderId ?? quiz.folder_id)
+    return (
+      <Card
+        key={quiz.id}
+        className={cn(
+          CARD_CLASS,
+          "transition-shadow duration-200 hover:shadow-lg"
+        )}
+      >
+        <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <p
+              className="lf-text break-words text-lg font-semibold [overflow-wrap:anywhere]"
+              title={quiz.title}
+            >
+              {truncateDisplayName(quiz.title)}
+            </p>
+            {options?.folderLabel && (
+              <p className="lf-text mt-1 text-sm text-muted-foreground">
+                {options.folderLabel}
+              </p>
+            )}
+          </div>
+          <div className="dashboard-quiz-actions flex shrink-0 flex-wrap gap-2">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal"
+            >
+              <Link to={editLink(quiz.id, fid)}>
+                <Pencil />
+                Редактировать
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal"
+            >
+              <Link to={teacherLink(quiz.id, fid)}>
+                <Presentation />
+                Показ
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal"
+            >
+              <Link to={resultsLink(quiz.id, fid)}>
+                <BarChart3 />
+                Результаты
+              </Link>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal text-muted-foreground hover:text-destructive"
+              onClick={() => void handleDeleteQuiz(quiz.id)}
+              disabled={isDeletingQuizId === quiz.id}
+            >
+              <Trash2 className="size-4" />
+              Удалить
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   if (!user) {
     return (
@@ -510,6 +697,22 @@ export default function Dashboard({
         </Button>
       </div>
 
+      <div className="relative mb-6">
+        <Search
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          id="quiz-search"
+          type="search"
+          value={searchQuery}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          placeholder="Поиск по названию, предмету, классу…"
+          className="bg-white pl-9"
+          aria-label="Поиск викторин"
+        />
+      </div>
+
       {isInsideFolder ? (
         <>
           <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -601,7 +804,44 @@ export default function Dashboard({
         </p>
       )}
 
-      {!isInsideFolder && (
+      {!isInsideFolder && isGlobalSearchActive && (
+        <>
+          {allQuizzesLoading && (
+            <p className="text-sm text-muted-foreground">Поиск…</p>
+          )}
+          {allQuizzesError && (
+            <p className="text-sm text-destructive">{allQuizzesError}</p>
+          )}
+          {!allQuizzesLoading &&
+            !allQuizzesError &&
+            allQuizzesCache !== null &&
+            filteredGlobalQuizzes.length === 0 && (
+              <Card className={cn("py-12", CARD_CLASS)}>
+                <CardContent className="text-center">
+                  <p className="lf-text text-lg text-muted-foreground">
+                    Ничего не найдено по запросу «{searchQuery.trim()}»
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          {!allQuizzesLoading &&
+            !allQuizzesError &&
+            filteredGlobalQuizzes.length > 0 && (
+              <div className="flex flex-col gap-4">
+                {filteredGlobalQuizzes.map((quiz) =>
+                  renderQuizCard(quiz, {
+                    folderId: quiz.folder_id,
+                    folderLabel: quiz.folderName
+                      ? `Папка: ${quiz.folderName}`
+                      : "Без папки",
+                  })
+                )}
+              </div>
+            )}
+        </>
+      )}
+
+      {!isInsideFolder && !isGlobalSearchActive && (
         <>
           {folders.length === 0 && !foldersLoading ? (
             <Card className={cn("py-12", CARD_CLASS)}>
@@ -735,72 +975,17 @@ export default function Dashboard({
                 </Button>
               </CardContent>
             </Card>
+          ) : isFolderSearchActive && displayedFolderQuizzes.length === 0 ? (
+            <Card className={cn("py-12", CARD_CLASS)}>
+              <CardContent className="text-center">
+                <p className="lf-text text-lg text-muted-foreground">
+                  Ничего не найдено по запросу «{searchQuery.trim()}»
+                </p>
+              </CardContent>
+            </Card>
           ) : (
             <div className="flex flex-col gap-4">
-              {quizzes.map((quiz) => (
-                <Card
-                  key={quiz.id}
-                  className={cn(
-                    CARD_CLASS,
-                    "transition-shadow duration-200 hover:shadow-lg"
-                  )}
-                >
-                  <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-                    <p
-                      className="lf-text min-w-0 flex-1 break-words text-lg font-semibold [overflow-wrap:anywhere]"
-                      title={quiz.title}
-                    >
-                      {truncateDisplayName(quiz.title)}
-                    </p>
-                    <div className="dashboard-quiz-actions flex shrink-0 flex-wrap gap-2">
-                      <Button
-                        asChild
-                        variant="outline"
-                        size="sm"
-                        className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal"
-                      >
-                        <Link to={editLink(quiz.id)}>
-                          <Pencil />
-                          Редактировать
-                        </Link>
-                      </Button>
-                      <Button
-                        asChild
-                        variant="outline"
-                        size="sm"
-                        className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal"
-                      >
-                        <Link to={teacherLink(quiz.id)}>
-                          <Presentation />
-                          Показ
-                        </Link>
-                      </Button>
-                      <Button
-                        asChild
-                        variant="outline"
-                        size="sm"
-                        className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal"
-                      >
-                        <Link to={resultsLink(quiz.id)}>
-                          <BarChart3 />
-                          Результаты
-                        </Link>
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="dashboard-quiz-btn h-auto min-h-8 shrink-0 whitespace-normal text-muted-foreground hover:text-destructive"
-                        onClick={() => void handleDeleteQuiz(quiz.id)}
-                        disabled={isDeletingQuizId === quiz.id}
-                      >
-                        <Trash2 className="size-4" />
-                        Удалить
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              {displayedFolderQuizzes.map((quiz) => renderQuizCard(quiz))}
             </div>
           )}
 

@@ -28,6 +28,15 @@ export interface QuizListItem {
   title: string
   folder_id?: string | null
   updated_at?: string
+  subject?: string | null
+  grade?: string | null
+  difficulty?: string | null
+  status?: string | null
+  questions_count?: number
+}
+
+export interface QuizSearchItem extends QuizListItem {
+  folderName?: string
 }
 
 export interface UpdateQuizRequest {
@@ -98,16 +107,51 @@ export async function deleteFolder(id: string): Promise<void> {
   }
 }
 
-export async function listQuizzesInFolder(
-  folderId: string
+async function fetchQuizList(
+  folderId?: string
 ): Promise<QuizListItem[]> {
-  const params = new URLSearchParams({ folder_id: folderId })
-  const response = await authFetch(`${API_BASE_URL}/quiz/list?${params}`)
+  const url =
+    folderId != null
+      ? `${API_BASE_URL}/quiz/list?${new URLSearchParams({ folder_id: folderId })}`
+      : `${API_BASE_URL}/quiz/list`
+  const response = await authFetch(url)
   if (!response.ok) {
     throw new Error(await readApiError(response, "Ошибка загрузки викторин"))
   }
   const data = (await response.json()) as { quizzes?: QuizListItem[] }
   return sortByUpdatedAtDesc(data.quizzes ?? [])
+}
+
+export async function listQuizzesInFolder(
+  folderId: string
+): Promise<QuizListItem[]> {
+  return fetchQuizList(folderId)
+}
+
+export async function listQuizzesWithoutFolder(): Promise<QuizListItem[]> {
+  return fetchQuizList()
+}
+
+export async function loadAllQuizzesForSearch(): Promise<QuizSearchItem[]> {
+  const folders = await getFolders()
+  const inFolders = (
+    await Promise.all(
+      folders.map(async (folder) => {
+        const quizzes = await listQuizzesInFolder(folder.id)
+        return quizzes.map(
+          (q): QuizSearchItem => ({
+            ...q,
+            folder_id: q.folder_id ?? folder.id,
+            folderName: folder.name,
+          })
+        )
+      })
+    )
+  ).flat()
+  const withoutFolder = (await listQuizzesWithoutFolder()).map(
+    (q): QuizSearchItem => ({ ...q })
+  )
+  return sortByUpdatedAtDesc([...inFolders, ...withoutFolder])
 }
 
 export async function deleteQuiz(quizId: string): Promise<void> {

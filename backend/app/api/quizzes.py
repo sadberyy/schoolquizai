@@ -420,6 +420,13 @@ async def generate_quiz_from_materials(
         fragment = fragments_by_id.get(source_fragment_id)
         filename = fragment.source_name if fragment else ""
 
+        if re.fullmatch(r"image_\d+", source_fragment_id) or (
+            fragment is not None and fragment.source_type == "image"
+        ):
+            if filename:
+                return f"Распознанный текст с изображения ({filename})"
+            return "Распознанный текст с изображения"
+
         pdf_match = re.fullmatch(r"pdf_page_(\d+)_chunk_(\d+)", source_fragment_id)
         if pdf_match:
             page = int(pdf_match.group(1))
