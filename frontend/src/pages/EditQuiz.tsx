@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
-import { Check, ChevronsUpDown, Download, Loader2, Plus, Trash2 } from "lucide-react"
+import {
+  Check,
+  ChevronsUpDown,
+  Download,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react"
+import { toast } from "sonner"
 
 import { MathPreview } from "@/components/MathText"
 import { QuestionImageUploader } from "@/components/QuestionImageUploader"
@@ -45,7 +54,10 @@ import {
   getFolders,
   getQuizResults,
   getStudentQuizBaseUrl,
+  regenerateQuestion,
+  regenerateQuiz,
   type QuizFolder,
+  type RegeneratedQuestionPayload,
   type UpdateQuizRequest,
 } from "@/lib/api"
 import { truncateListLabel } from "@/lib/displayText"
@@ -372,6 +384,35 @@ function buildOptionsFromBackendAnswers(params: {
   }))
 }
 
+function mapRegeneratedQuestion(
+  q: RegeneratedQuestionPayload,
+  quizId: string,
+  existingQuestions: QuizQuestion[]
+): QuizQuestion {
+  const existing = existingQuestions.find((eq) => eq.id === String(q.id))
+  const type = mapQuestionTypeBackendToFrontend(q.question_type)
+  const questionPoints = Number(q.points) || 0
+  const hasImage = existing?.hasImage ?? false
+
+  return {
+    id: String(q.id),
+    type,
+    text: q.question_text ?? "",
+    source: q.source_fragment ?? "",
+    explanation: q.explanation ?? "",
+    hasImage,
+    imageUrl: hasImage
+      ? getQuestionImageUrl(quizId, String(q.id))
+      : (existing?.imageUrl ?? null),
+    options: buildOptionsFromBackendAnswers({
+      answers: q.answers,
+      correctAnswers: q.correct_answers,
+      questionType: type,
+      questionPoints,
+    }),
+  }
+}
+
 export function backendQuizToQuizData(backendQuiz: any): QuizData {
   const mappedDifficulty = mapDifficultyBackendToFrontend(backendQuiz.difficulty)
 
@@ -481,6 +522,14 @@ export default function EditQuiz({
   const [hasQuizResults, setHasQuizResults] = useState(false)
   const [saveAsNewVersion, setSaveAsNewVersion] = useState(false)
 
+  const [quizRegenerateInstruction, setQuizRegenerateInstruction] = useState("")
+  const [isRegeneratingQuiz, setIsRegeneratingQuiz] = useState(false)
+  const [questionRegenerateInstructions, setQuestionRegenerateInstructions] =
+    useState<Record<string, string>>({})
+  const [regeneratingQuestionId, setRegeneratingQuestionId] = useState<
+    string | null
+  >(null)
+
   const footerRef = useRef<HTMLDivElement>(null)
   const [footerPadding, setFooterPadding] = useState(180)
 
@@ -495,8 +544,12 @@ export default function EditQuiz({
     updatePadding()
     const observer = new ResizeObserver(updatePadding)
     observer.observe(footer)
-    return () => observer.disconnect()
-  }, [])
+    window.addEventListener("resize", updatePadding)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", updatePadding)
+    }
+  }, [quiz.questions.length, exportingFormat, isRegeneratingQuiz])
 
   useEffect(() => {
     if (!quizData) return
@@ -563,6 +616,69 @@ export default function EditQuiz({
       setQuiz((prev) => ({ ...prev, ...patch }))
     },
     []
+  )
+
+  const handleRegenerateQuiz = useCallback(async () => {
+    const instruction = quizRegenerateInstruction.trim()
+    if (!resolvedQuizId || !instruction) return
+
+    setIsRegeneratingQuiz(true)
+    try {
+      const data = await regenerateQuiz(resolvedQuizId, instruction)
+      const sorted = [...data.questions].sort(
+        (a, b) => (a.order_idx ?? 0) - (b.order_idx ?? 0)
+      )
+      setQuiz((prev) => ({
+        ...prev,
+        questions: sorted.map((q) =>
+          mapRegeneratedQuestion(q, resolvedQuizId, prev.questions)
+        ),
+      }))
+      backendQuestionIdsRef.current = new Set(sorted.map((q) => String(q.id)))
+      toast.success("Викторина перегенерирована")
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Не удалось перегенерировать викторину"
+      )
+    } finally {
+      setIsRegeneratingQuiz(false)
+    }
+  }, [quizRegenerateInstruction, resolvedQuizId])
+
+  const handleRegenerateQuestion = useCallback(
+    async (questionId: string) => {
+      const instruction = questionRegenerateInstructions[questionId]?.trim()
+      if (!resolvedQuizId || !instruction) return
+
+      setRegeneratingQuestionId(questionId)
+      try {
+        const data = await regenerateQuestion(
+          resolvedQuizId,
+          questionId,
+          instruction
+        )
+        setQuiz((prev) => ({
+          ...prev,
+          questions: prev.questions.map((q) =>
+            q.id === questionId
+              ? mapRegeneratedQuestion(
+                  data.question,
+                  resolvedQuizId,
+                  prev.questions
+                )
+              : q
+          ),
+        }))
+        toast.success("Вопрос перегенерирован")
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Не удалось перегенерировать вопрос"
+        )
+      } finally {
+        setRegeneratingQuestionId(null)
+      }
+    },
+    [questionRegenerateInstructions, resolvedQuizId]
   )
 
   const updateQuestion = useCallback(
@@ -1380,6 +1496,48 @@ export default function EditQuiz({
                 className="bg-muted/50"
               />
             </div>
+
+            <div className="col-span-full mt-2 flex flex-col gap-3 border-t border-quiz-card-border/70 pt-4 sm:flex-row sm:items-end">
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <Label htmlFor="quiz-regenerate-instruction" className="lf-text">
+                  Указания для перегенерации
+                </Label>
+                <Input
+                  id="quiz-regenerate-instruction"
+                  value={quizRegenerateInstruction}
+                  onChange={(e) => setQuizRegenerateInstruction(e.target.value)}
+                  placeholder="Например: сделай вопросы посложнее..."
+                  disabled={isLoadingQuiz || isRegeneratingQuiz || !resolvedQuizId}
+                  className="lf-text"
+                />
+              </div>
+              <Button
+                type="button"
+                className={cn(
+                  ACCENT_BUTTON_CLASS,
+                  "w-full shrink-0 sm:w-auto"
+                )}
+                disabled={
+                  !quizRegenerateInstruction.trim() ||
+                  isLoadingQuiz ||
+                  isRegeneratingQuiz ||
+                  !resolvedQuizId
+                }
+                onClick={() => void handleRegenerateQuiz()}
+              >
+                {isRegeneratingQuiz ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Генерация…
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="size-4" />
+                    Перегенерировать викторину
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1612,6 +1770,59 @@ export default function EditQuiz({
                   rows={2}
                 />
                 <MathPreview text={question.explanation} />
+              </div>
+
+              <div className="flex flex-col gap-2 border-t border-quiz-card-border/60 pt-4">
+                <Label
+                  htmlFor={`regenerate-${question.id}`}
+                  className="lf-text text-sm"
+                >
+                  Указания для перегенерации
+                </Label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                  <Input
+                    id={`regenerate-${question.id}`}
+                    value={questionRegenerateInstructions[question.id] ?? ""}
+                    onChange={(e) =>
+                      setQuestionRegenerateInstructions((prev) => ({
+                        ...prev,
+                        [question.id]: e.target.value,
+                      }))
+                    }
+                    placeholder="Вопрос слишком лёгкий, сделай посложнее..."
+                    disabled={
+                      isLoadingQuiz ||
+                      regeneratingQuestionId === question.id ||
+                      !resolvedQuizId
+                    }
+                    className="lf-text min-w-0 flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full shrink-0 border-quiz-card-border sm:w-auto"
+                    disabled={
+                      !(questionRegenerateInstructions[question.id] ?? "").trim() ||
+                      isLoadingQuiz ||
+                      regeneratingQuestionId === question.id ||
+                      !resolvedQuizId
+                    }
+                    onClick={() => void handleRegenerateQuestion(question.id)}
+                  >
+                    {regeneratingQuestionId === question.id ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        Генерация…
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="size-4" />
+                        Перегенерировать вопрос
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -27,7 +27,7 @@
 
 ### 1. Настройка backend
 
-Перейдите в папку `backend` и создайте файл `.env`.
+Перейдите в папку `backend` и создайте файл `.env` по подобию `.env.example`.
 
 Пример содержимого `./backend/.env`:
 
@@ -69,9 +69,9 @@ source .venv/Scripts/activate
 
 ### 3. Создание `.env.local` для frontend
 
-Откройте второй терминал, перейдите в папку `frontend` и создайте файл `./frontend/.env.local`.
+Откройте второй терминал, перейдите в папку `frontend` и создайте файл `./frontend/.env.local` по подобию `.env.example`.
 
-Пример содержимого:
+Содержимое для локального запуска:
 
 ```env
 VITE_API_URL=http://localhost:8000
@@ -112,12 +112,10 @@ VITE_API_URL=http://localhost:8000
 ## 🚀 Продакшен-версия
 
 В продакшене:
-
-- **frontend** развёрнут на **Vercel**
-- **backend** работает отдельно через серверную часть проекта
-- публичная версия доступна по ссылке:
-
-[https://school-quiz-ai.vercel.app/](https://school-quiz-ai.vercel.app/)
+- **Frontend** развёрнут на **Vercel**
+- **Backend** развёрнут на **Render**
+- База данных: **Supabase** (PostgreSQL)
+- Публичная версия доступна по ссылке: [https://school-quiz-ai.vercel.app/](https://school-quiz-ai.vercel.app/)
 
 ---
 
@@ -142,7 +140,7 @@ VITE_API_URL=http://localhost:8000
 - генерация викторин на основе текстового материала (импорт и чтение PDF, PPTX, TXT, DOCX);
 - редактирование вопросов и ответов;
 - работа с LaTeX-формулами;
-- показ и экспорт викторины (через PDF, PPTX, ссылки);
+- показ и экспорт викторины (через PDF, PPTX, DOCX, ссылки);
 - локальный и публичный запуск проекта.
 
 ---

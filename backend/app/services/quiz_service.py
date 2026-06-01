@@ -62,7 +62,9 @@ class QuizService:
     
         raw_text += '}' * (open_braces - close_braces)
         raw_text += ']' * (open_brackets - close_brackets)
-    
+        
+        raw_text = raw_text.replace('"correct answers"', '"correct_answers"')
+        raw_text = raw_text.replace('"correctAnswers"', '"correct_answers"')
         # замена \ перед буквами на \\ (Latex)
         raw_text = re.sub(r'(?<!\\)\\([a-zA-Z]+)', r'\\\\\1', raw_text)
 

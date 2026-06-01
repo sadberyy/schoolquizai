@@ -67,14 +67,27 @@ class QuizValidationService:
                 suggested_fix=f"Сделать ровно {expected_opts} вариантов ответа.",
             ))
 
-        if expected_correct is not None and len(question.correct_answers) != expected_correct:
-            issues.append(QuestionIssue(
-                question_index=idx,
-                severity="critical",
-                category="options_count_mismatch",
-                description=f"Тип '{question.type}' требует {expected_correct} правильных ответов, а получено {len(question.correct_answers)}.",
-                suggested_fix=f"Указать ровно {expected_correct} правильных ответов.",
-            ))
+        if expected_correct is not None:
+            if question.type == "multiple_choice":
+            # Для multiple_choice минимум 1 правильный ответ
+                if len(question.correct_answers) < expected_correct:
+                    issues.append(QuestionIssue(
+                        question_index=idx,
+                        severity="critical",
+                        category="options_count_mismatch",
+                        description=f"Тип '{question.type}' требует минимум {expected_correct} правильных ответов, а получено {len(question.correct_answers)}.",
+                        suggested_fix=f"Указать минимум {expected_correct} правильных ответов.",
+                    ))
+            else:
+                # Для single_choice и true_false: точное совпадение
+                if len(question.correct_answers) != expected_correct:
+                    issues.append(QuestionIssue(
+                        question_index=idx,
+                        severity="critical",
+                        category="options_count_mismatch",
+                        description=f"Тип '{question.type}' требует {expected_correct} правильных ответов, а получено {len(question.correct_answers)}.",
+                        suggested_fix=f"Указать ровно {expected_correct} правильных ответов.",
+                    ))
 
         # Доп. проверка true_false
         if question.type == "true_false" and set(question.options) != set(TRUE_FALSE_OPTIONS):

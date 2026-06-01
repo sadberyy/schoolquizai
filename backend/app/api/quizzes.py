@@ -2,6 +2,7 @@ from enum import Enum
 from io import BytesIO
 from typing import Literal
 import re
+import json
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import StreamingResponse
@@ -19,7 +20,7 @@ from app.core.http_utils import content_disposition_attachment
 from app.core.logger import logger
 from app.db.database import get_db_session
 from app.db.models import Quiz, Question, Result, Folder, StudentAnswer
-from app.schemas.quiz import DifficultyLevel
+from app.schemas.quiz import DifficultyLevel, QuizQuestion, GenerateQuizResponse
 from app.schemas.material import SourceFragment
 from app.services.material_service import material_service
 from app.services.gigachat_service import gigachat_service
@@ -36,7 +37,12 @@ from app.services.attempts_service import (
     get_quiz_results,
 )
 from app.services.image_service import image_service
-
+from app.services.prompt_service import (
+    build_quiz_prompt,
+    build_quiz_fix_prompt,
+    build_question_regeneration_prompt,
+    build_quiz_regeneration_prompt
+)
 
 router = APIRouter(prefix="/quiz", tags=["Quiz"])
 
@@ -445,7 +451,7 @@ async def generate_quiz_from_materials(
 
         return ""
 
-    # --- Сохранение в БД ---
+    # сохранение в БД
     with get_db_session() as session:
         quiz = Quiz(
             title=result.quiz_title,
@@ -465,7 +471,6 @@ async def generate_quiz_from_materials(
         saved_quiz_id = quiz.id
 
         for idx, q in enumerate(result.questions):
-            # Deterministic post-validation перед сохранением:
             # если по какой-то причине правильных ответов > 0, total points вопроса
             # гарантированно поднимаем до значения, при котором все correct-option получают > 0.
             normalized_points = enforce_points_rule(
@@ -474,7 +479,7 @@ async def generate_quiz_from_materials(
                 1,
             )
             if q.correct_answers and q.type == "multiple_choice":
-                # strong condition: total points >= number of correct answers
+                # total points >= number of correct answers
                 if normalized_points < len(q.correct_answers):
                     raise HTTPException(
                         status_code=500,
@@ -979,6 +984,325 @@ def clone_quiz(
         logger.info(f"CLONED QUIZ | original={quiz_id} | clone={saved_clone_id}")
 
     return {"ok": True, "quiz_id": saved_clone_id, "title": saved_clone_title}
+
+
+class RegenerateQuestionRequest(BaseModel):
+    teacher_instruction: str
+
+
+@router.post("/{quiz_id}/questions/{question_id}/regenerate")
+def regenerate_question(
+    quiz_id: str,
+    question_id: str,
+    data: RegenerateQuestionRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """ Перегенерирует один вопрос с учётом указаний учителя """
+    require_quiz_owner(quiz_id, current_user.id)
+    
+    with get_db_session() as session:
+        quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Викторина не найдена")
+        
+        question = session.query(Question).filter(
+            Question.id == question_id,
+            Question.quiz_id == quiz_id,
+        ).first()
+        if not question:
+            raise HTTPException(status_code=404, detail="Вопрос не найден")
+        
+        # Формируем промпт для перегенерации
+        prompt = build_question_regeneration_prompt(
+            subject=quiz.subject,
+            grade=quiz.grade,
+            topic=quiz.title,
+            difficulty=quiz.difficulty,
+            question_type=question.question_type,
+            current_question_text=question.question_text,
+            current_options=question.answers,
+            current_correct_answers=question.correct_answers,
+            current_explanation=question.explanation or "",
+            source_fragment=question.source_fragment or "",
+            teacher_instruction=data.teacher_instruction,
+        )
+        
+        raw = gigachat_service.chat(
+            messages=[
+                {"role": "system", "content": "Ты возвращаешь только валидный JSON. ВСЕГДА используй ключ 'correct_answers' (snake_case), НИКОГДА не используй 'correct answers' или 'correctAnswers'."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+        )
+        
+        try:
+            raw_clean = quiz_service._extract_json(raw)
+            new_q = raw_clean["question"]
+            
+            temp_question = QuizQuestion(
+                type=new_q["type"],
+                text=new_q["text"],
+                options=new_q["options"],
+                correct_answers=new_q["correct_answers"],
+                explanation=new_q.get("explanation", ""),
+                difficulty=new_q.get("difficulty", quiz.difficulty),
+                source_fragment_id=new_q.get("source_fragment_id", question.source_fragment or ""),
+            )
+            
+            # получаем все вопросы викторины (нужны для валидации)
+            all_db_questions = (
+                session.query(Question)
+                .filter(Question.quiz_id == quiz_id)
+                .order_by(Question.order_idx)
+                .all()
+            )
+            
+            # собираем все вопросы викторины
+            all_questions = []
+            for q in all_db_questions:
+                if q.id == question_id:
+                    all_questions.append(temp_question)
+                else:
+                    all_questions.append(QuizQuestion(
+                        type=q.question_type,
+                        text=q.question_text,
+                        options=q.answers or [],
+                        correct_answers=q.correct_answers or [],
+                        explanation=q.explanation or "",
+                        difficulty=quiz.difficulty or "medium",
+                        source_fragment_id=q.source_fragment or "",
+                    ))
+            
+            temp_quiz = GenerateQuizResponse(
+                quiz_title=quiz.title,
+                subject=quiz.subject or "",
+                grade=quiz.grade or "",
+                topic=quiz.title,
+                questions=all_questions,
+            )
+            
+            # валидируем
+            fragments = []  # для перегенерации без фрагментов
+            validation_report = quiz_validation_service.validate(
+                quiz=temp_quiz,
+                fragments=fragments,
+                subject=quiz.subject or "",
+                grade=quiz.grade or "",
+                topic=quiz.title,
+                difficulty=quiz.difficulty or "medium",
+            )
+            
+            if not validation_report.is_valid:
+                logger.info(f"REGENERATE_QUESTION | validation found {validation_report.critical_count} critical issues, attempting fix")
+                fixed_quiz, _, _ = quiz_validation_service.validate_and_fix(
+                    quiz=temp_quiz,
+                    fragments=fragments,
+                    subject=quiz.subject or "",
+                    grade=quiz.grade or "",
+                    topic=quiz.title,
+                    difficulty=quiz.difficulty or "medium",
+                    auto_fix=True,
+                )
+                # берём исправленный вопрос     
+                if fixed_quiz.questions:
+                    fq = fixed_quiz.questions[0]
+                    new_q = {
+                        "text": fq.text,
+                        "options": fq.options,
+                        "correct_answers": fq.correct_answers,
+                        "explanation": fq.explanation,
+                        "source_fragment": fq.source_fragment_id or question.source_fragment or "",
+                    }
+            
+            # обновляем вопрос в БД
+            question.question_text = new_q["text"]
+            question.answers = new_q["options"]
+            question.correct_answers = new_q["correct_answers"]
+            question.explanation = new_q.get("explanation", "")
+            question.source_fragment = new_q.get("source_fragment", question.source_fragment or "")
+            question.points = enforce_points_rule(
+                question.question_type,
+                question.correct_answers,
+                question.points,
+            )
+            
+            session.commit()
+            logger.info(f"REGENERATE_QUESTION | success | question_id={question_id}")
+            
+            return {
+                "ok": True,
+                "validation": validation_report.model_dump() if not validation_report.is_valid else None,
+                "question": {
+                    "id": question.id,
+                    "question_text": question.question_text,
+                    "question_type": question.question_type,
+                    "answers": question.answers,
+                    "correct_answers": question.correct_answers,
+                    "explanation": question.explanation,
+                    "source_fragment": question.source_fragment,
+                    "points": question.points,
+                    "order_idx": question.order_idx,
+                }
+            }
+        except Exception as e:
+            logger.error(f"REGENERATE_QUESTION_ERROR: {e}")
+            raise HTTPException(status_code=500, detail=f"Ошибка перегенерации: {str(e)}")
+
+class RegenerateQuizRequest(BaseModel):
+    teacher_instruction: str
+
+
+@router.post("/{quiz_id}/regenerate")
+def regenerate_quiz(
+    quiz_id: str,
+    data: RegenerateQuizRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Перегенерирует всю викторину с учётом указаний учителя"""
+    require_quiz_owner(quiz_id, current_user.id)
+    
+    with get_db_session() as session:
+        quiz = session.query(Quiz).filter(Quiz.id == quiz_id).first()
+        if not quiz:
+            raise HTTPException(status_code=404, detail="Викторина не найдена")
+        
+        questions = (
+            session.query(Question)
+            .filter(Question.quiz_id == quiz_id)
+            .order_by(Question.order_idx)
+            .all()
+        )
+        
+        # собираем текущие вопросы для контекста
+        current_questions_text = "\n\n".join([
+            f"Вопрос {q.order_idx + 1}: {q.question_text}\n"
+            f"Тип: {q.question_type}\n"
+            f"Варианты: {q.answers}\n"
+            f"Правильные: {q.correct_answers}\n"
+            f"Пояснение: {q.explanation}"
+            for q in questions
+        ])
+        
+        question_types = list(set(q.question_type for q in questions))
+        
+        prompt = build_quiz_regeneration_prompt(
+            subject=quiz.subject,
+            grade=quiz.grade,
+            topic=quiz.title,
+            difficulty=quiz.difficulty,
+            question_count=len(questions),
+            question_types=question_types,
+            current_questions_text=current_questions_text,
+            teacher_instruction=data.teacher_instruction,
+        )
+        
+        raw = gigachat_service.chat(
+            messages=[
+                {"role": "system", "content": "Ты возвращаешь только валидный JSON. ВСЕГДА используй ключ 'correct_answers' (snake_case), НИКОГДА не используй 'correct answers' или 'correctAnswers'."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+        )
+        
+        try:
+            raw_clean = quiz_service._extract_json(raw)
+            new_questions_data = raw_clean["questions"]
+            
+            temp_questions = [
+                QuizQuestion(
+                    type=q["type"],
+                    text=q["text"],
+                    options=q["options"],
+                    correct_answers=q["correct_answers"],
+                    explanation=q.get("explanation", ""),
+                    difficulty=q.get("difficulty", quiz.difficulty or "medium"),
+                    source_fragment_id=q.get("source_fragment_id"),
+                )
+                for q in new_questions_data
+            ]
+            
+            temp_quiz = GenerateQuizResponse(
+                quiz_title=quiz.title,
+                subject=quiz.subject or "",
+                grade=quiz.grade or "",
+                topic=quiz.title,
+                questions=temp_questions,
+            )
+            
+            # валидируем и фиксим
+            fragments = []
+            fixed_quiz, validation_before, validation_after = quiz_validation_service.validate_and_fix(
+                quiz=temp_quiz,
+                fragments=fragments,
+                subject=quiz.subject or "",
+                grade=quiz.grade or "",
+                topic=quiz.title,
+                difficulty=quiz.difficulty or "medium",
+                auto_fix=True,
+            )
+            
+            # используем исправленную версию
+            final_questions = fixed_quiz.questions
+            # удаляем старые вопросы и создаём новые
+            session.query(Question).filter(Question.quiz_id == quiz_id).delete()
+            
+            for idx, q in enumerate(final_questions):
+                # пересчитываем баллы
+                normalized_points = enforce_points_rule(
+                    q.type,
+                    q.correct_answers,
+                    1,
+                )
+                new_question = Question(
+                    quiz_id=quiz_id,
+                    question_text=q.text,
+                    question_type=q.type,
+                    answers=q.options,
+                    correct_answers=q.correct_answers,
+                    explanation=q.explanation,
+                    source_fragment=q.source_fragment_id or "",
+                    points=normalized_points,
+                    order_idx=idx,
+                )
+                session.add(new_question)
+            
+            session.commit()
+            
+            logger.info(f"REGENERATE_QUIZ | success | quiz_id={quiz_id} | score_before={validation_before.overall_score} | score_after={validation_after.overall_score if validation_after else 'N/A'}")
+            
+            updated_questions = (
+                session.query(Question)
+                .filter(Question.quiz_id == quiz_id)
+                .order_by(Question.order_idx)
+                .all()
+            )
+            
+            return {
+                "ok": True,
+                "quiz_id": quiz_id,
+                "validation": {
+                    "score_before": validation_before.overall_score,
+                    "score_after": validation_after.overall_score if validation_after else None,
+                    "was_fixed": validation_after is not None,
+                },
+                "questions": [
+                    {
+                        "id": q.id,
+                        "question_text": q.question_text,
+                        "question_type": q.question_type,
+                        "answers": q.answers,
+                        "correct_answers": q.correct_answers,
+                        "explanation": q.explanation,
+                        "source_fragment": q.source_fragment,
+                        "points": q.points,
+                        "order_idx": q.order_idx,
+                    }
+                    for q in updated_questions
+                ]
+            }
+        except Exception as e:
+            logger.error(f"REGENERATE_QUIZ_ERROR: {e}")
+            raise HTTPException(status_code=500, detail=f"Ошибка перегенерации: {str(e)}")
 
 
 # роуты для ученика

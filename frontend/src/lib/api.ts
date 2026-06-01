@@ -217,6 +217,66 @@ export async function getQuizHeatmap(quizId: string): Promise<QuizHeatmapData> {
   return (await response.json()) as QuizHeatmapData
 }
 
+export interface RegeneratedQuestionPayload {
+  id: string
+  question_text: string
+  question_type: string
+  answers: unknown
+  correct_answers: unknown
+  explanation?: string
+  source_fragment?: string
+  points?: number
+  order_idx?: number
+}
+
+export interface RegenerateQuizResponse {
+  ok: boolean
+  quiz_id: string
+  questions: RegeneratedQuestionPayload[]
+}
+
+export interface RegenerateQuestionResponse {
+  ok: boolean
+  question: RegeneratedQuestionPayload
+}
+
+export async function regenerateQuiz(
+  quizId: string,
+  teacherInstruction: string
+): Promise<RegenerateQuizResponse> {
+  const response = await authFetch(
+    `${API_BASE_URL}/quiz/${encodeURIComponent(quizId)}/regenerate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teacher_instruction: teacherInstruction.trim() }),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Ошибка перегенерации викторины"))
+  }
+  return (await response.json()) as RegenerateQuizResponse
+}
+
+export async function regenerateQuestion(
+  quizId: string,
+  questionId: string,
+  teacherInstruction: string
+): Promise<RegenerateQuestionResponse> {
+  const response = await authFetch(
+    `${API_BASE_URL}/quiz/${encodeURIComponent(quizId)}/questions/${encodeURIComponent(questionId)}/regenerate`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teacher_instruction: teacherInstruction.trim() }),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Ошибка перегенерации вопроса"))
+  }
+  return (await response.json()) as RegenerateQuestionResponse
+}
+
 export async function cloneQuiz(
   quizId: string,
   folderId?: string | null

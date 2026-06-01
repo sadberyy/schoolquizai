@@ -22,9 +22,14 @@ def _build_type_rules_block() -> str:
                 f"- Для {q_type} варианты должны быть ровно: {tf_str}, "
                 f"ровно {correct_count} правильный(ых) ответ(ов)."
             )
+        elif q_type == "multiple_choice":
+            lines.append(
+                f"- Для {q_type} должно быть минимум {opts_count} вариантов "
+                f"и минимум {correct_count} правильных ответа."
+            )
         else:
             lines.append(
-                f"- Для {q_type} должно быть ровно {opts_count} вариантов "
+                f"- Для {q_type} должно быть минимум {opts_count} вариантов "
                 f"и ровно {correct_count} правильных ответа."
             )
     return "- \n".join(lines)
@@ -163,7 +168,7 @@ def build_quiz_prompt(
 - explanation должен быть кратким (желательно не более 150 символов).
 - Баллы в итоговой викторине распределяются так, чтобы каждый correct_answer имел положительный score:
   - для single_choice (и true_false) должно быть ровно 1 correct_answer, и он должен получить > 0 баллов;
-  - для multiple_choice должно быть ровно 2 correct_answer, и все correct_answer должны получить > 0 баллов.
+  - для multiple_choice должно быть 1 или более correct_answer, и все correct_answer должны получить > 0 баллов.
   Если при таком распределении хотя бы один correct_answer получил бы 0 баллов — это ошибка (format_error, critical) и вопрос нужно исправить.
 
 - В начале ответа напиши ровно [JSON_START] и сразу после него верни JSON.
@@ -249,7 +254,8 @@ def build_quiz_validation_prompt(
 {_build_type_rules_block()}
 6. **difficulty_mismatch** — фактическая сложность вопроса явно не соответствует "{difficulty}".
 7. **off_topic** — вопрос не относится к теме "{topic}" или предмету "{subject}".
-8. **format_error** — correct_answers содержит значения, которых нет в options; или другая структурная проблема.
+8. **wrong_key_format** (critical) — в JSON использован другой ключ, отличный от "correct_answers" (например, "correct answers" или "correctAnswers"). Это всегда critical, вопрос нужно перегенерировать с правильным ключом.
+9. **format_error** — correct_answers содержит значения, которых нет в options; или использован неправильный ключ; или другая структурная проблема.
 {grounded_rules}
 
 Уровни критичности:
@@ -369,6 +375,7 @@ def build_quiz_fix_prompt(
 {_build_type_rules_block()}
 
 Строгие требования к исправлению:
+- Если в вопросе использован ключ, отличающийся от "correct_answers" (snake_case) (например, "correct answers" или "correctAnswers") — переименуй его в "correct_answers".
 - Сохрани original_index для каждого вопроса — это его позиция в исходной викторине.
 - Исправь ВСЕ перечисленные проблемы, особенно critical.
 - Не добавляй новых проблем: проверь количество вариантов, корректность correct_answers, привязку к source_fragment_id.
@@ -377,7 +384,7 @@ def build_quiz_fix_prompt(
 - correct_answers должен содержать только значения из options.
 - Баллы в итоговой викторине распределяются так, чтобы каждый correct_answer имел положительный score:
   - для single_choice (и true_false) должно быть ровно 1 correct_answer, и он должен получить > 0 баллов;
-  - для multiple_choice должно быть ровно 2 correct_answer, и все correct_answer должны получить > 0 баллов.
+  - для multiple_choice должно быть 1 или более correct_answer, и все correct_answer должны получить > 0 баллов.
   Если при таком распределении хотя бы один correct_answer получил бы 0 баллов — это ошибка (format_error, critical) и вопрос нужно исправить.
 {"- source_fragment_id должен быть из списка допустимых." if fragments else "- source_fragment_id оставь null."}
 - Не используй внешние знания, если есть фрагменты — опирайся только на них.
@@ -403,7 +410,7 @@ def build_quiz_fix_prompt(
   ]
 }}
 
-Строгие требования к формату ответа:
+СТРОГИЕ ТРЕБОВАНИЯ:
 - В начале ответа напиши ровно [JSON_START] и сразу после него верни JSON.
 - Сразу после JSON напиши ровно [JSON_END].
 - Между [JSON_START] и [JSON_END] не должно быть ничего, кроме валидного JSON.
@@ -412,4 +419,129 @@ def build_quiz_fix_prompt(
 - Каждый original_index должен совпадать с одним из переданных.
 - Если среди проблем есть no_distractors — добавь правдоподобные дистракторы (неправильные варианты, отражающие типичные ошибки учеников),
  но не делай их абсурдными или очевидно ложными.
+"""
+
+
+def build_question_regeneration_prompt(
+    subject: str,
+    grade: str,
+    topic: str,
+    difficulty: str,
+    question_type: str,
+    current_question_text: str,
+    current_options: list,
+    current_correct_answers: list,
+    current_explanation: str,
+    source_fragment: str,
+    teacher_instruction: str,
+) -> str:
+    """ Промпт для перегенерации одного вопроса с учётом указаний учителя """
+
+    return f"""
+Ты — методист и автор школьных викторин. Перегенерируй ОДИН вопрос викторины с учётом указаний учителя.
+
+Исходные параметры:
+- Предмет: {subject}
+- Класс: {grade}
+- Тема: {topic}
+- Сложность: {difficulty}
+- Тип вопроса: {question_type}
+
+ТЕКУЩИЙ ВОПРОС (который нужно улучшить):
+{current_question_text}
+
+Варианты ответов: {current_options}
+Правильные ответы: {current_correct_answers}
+Пояснение к правильным ответам: {current_explanation}
+
+УКАЗАНИЯ УЧИТЕЛЯ к перегенерированию вопроса (обязательно учти их):
+{teacher_instruction}
+
+Верни ТОЛЬКО ОДИН вопрос в JSON формате:
+{{
+  "question": {{
+    "type": "{question_type}",
+    "text": "новый текст вопроса",
+    "options": ["string", "string", ...],
+    "correct_answers": ["string"],
+    "explanation": "string",
+    "difficulty": "{difficulty}",
+    "source_fragment_id": "{source_fragment or 'Текстовое указание'}"
+  }}
+}}
+
+СТРОГИЕ ТРЕБОВАНИЯ:
+- САМОЕ ВАЖНОЕ: используй ключ "correct_answers" (snake_case, с нижним подчёркиванием). 
+  Если ты используешь "correct answers" (с пробелом) или "correctAnswers" (camelCase) — это КРИТИЧЕСКАЯ ошибка, и вопрос будет забракован.
+- НЕ МЕНЯЙ тип вопроса. Он должен остаться строго "{question_type}".
+- Верни только валидный JSON, без markdown
+- correct_answers должен содержать только значения из options
+- В начале ответа напиши ровно [JSON_START] и сразу после него верни JSON.
+- Сразу после JSON напиши ровно [JSON_END].
+- Между [JSON_START] и [JSON_END] не должно быть ничего, кроме валидного JSON.
+- difficulty каждого вопроса должно быть равно "{difficulty}".
+- Все математические формулы записывай в LaTeX внутри $...$.
+"""
+
+
+def build_quiz_regeneration_prompt(
+    subject: str,
+    grade: str,
+    topic: str,
+    difficulty: str,
+    question_count: int,
+    question_types: list[str],
+    current_questions_text: str,
+    teacher_instruction: str,
+) -> str:
+    """ Промпт для перегенерации всей викторины с учётом указаний учителя """
+    
+    return f"""
+Ты — методист и автор школьных викторин. Перегенерируй ВСЮ викторину с учётом указаний учителя.
+
+Исходные параметры:
+- Предмет: {subject}
+- Класс: {grade}
+- Тема: {topic}
+- Сложность: {difficulty}
+- Количество вопросов: {question_count}
+- Типы вопросов: {", ".join(question_types)}
+
+ТЕКУЩАЯ ВИКТОРИНА:
+{current_questions_text}
+
+УКАЗАНИЯ УЧИТЕЛЯ к перегенерированию викторины(обязательно учти их):
+{teacher_instruction}
+
+Верни JSON с полным списком вопросов:
+{{
+  "quiz_title": "{topic}",
+  "subject": "{subject}",
+  "grade": "{grade}",
+  "topic": "{topic}",
+  "questions": [
+    {{
+      "type": "тип_вопроса",
+      "text": "текст_вопроса",
+      "options": ["string", "string", ...],
+      "correct_answers": ["string"],
+      "explanation": "пояснение",
+      "difficulty": "{difficulty}",
+      "source_fragment_id": "Текстовое указание или source_fragment из похожего вопроса прошлой версии викторины"
+    }}
+  ]
+}}
+
+Строгие требования:
+- САМОЕ ВАЖНОЕ: используй ключ "correct_answers" (snake_case, с нижним подчёркиванием). 
+  Если ты используешь "correct answers" (с пробелом) или "correctAnswers" (camelCase) — это КРИТИЧЕСКАЯ ошибка, и вопрос будет забракован.
+- Сгенерируй ровно {question_count} вопросов
+- Сохрани разнообразие типов: {", ".join(question_types)}
+- difficulty каждого вопроса должно быть равно "{difficulty}".
+- Верни только валидный JSON, без markdown
+- correct_answers должен содержать только значения из options
+- В начале ответа напиши ровно [JSON_START] и сразу после него верни JSON.
+- Сразу после JSON напиши ровно [JSON_END].
+- Между [JSON_START] и [JSON_END] не должно быть ничего, кроме валидного JSON.
+- Все математические формулы записывай в LaTeX внутри $...$.
 """
